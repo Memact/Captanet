@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: memact
+    runtime: node
+    buildCommand: npm run build
+    startCommand: npm run start

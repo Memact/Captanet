@@ -1,0 +1,13 @@
+build/
+dist/
+node_modules/
+.vite/
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.db
+*.log
+.extension-package/
