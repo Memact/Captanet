@@ -76,7 +76,7 @@ Responses:
 
 ## Browser Runtime Export
 
-When the Captanet website is running with the extension bridge enabled, the page now exposes a small runtime API:
+When a compatible Memact website host is running with the extension bridge enabled, the page exposes a small runtime API:
 
 - `window.captanet.getEvents({ limit })`
 - `window.captanet.getSessions({ limit })`

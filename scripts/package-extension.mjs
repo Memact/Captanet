@@ -10,7 +10,7 @@ const projectRoot = path.resolve(__dirname, '..')
 const sourceRoot = path.join(projectRoot, 'extension', 'memact')
 const stagingRoot = path.join(projectRoot, '.extension-package')
 const packageRoot = path.join(stagingRoot, 'memact-extension')
-const outputZip = path.join(projectRoot, 'public', 'memact-extension.zip')
+const outputZip = path.join(projectRoot, 'artifacts', 'memact-extension.zip')
 
 async function ensureCleanDir(targetPath) {
   await fs.rm(targetPath, { recursive: true, force: true })
@@ -55,6 +55,7 @@ function runCommand(command, args) {
 }
 
 async function createZipArchive() {
+  await fs.mkdir(path.dirname(outputZip), { recursive: true })
   await fs.rm(outputZip, { force: true })
 
   if (process.platform === 'win32') {

@@ -1,4 +1,5 @@
 build/
+artifacts/
 dist/
 node_modules/
 .vite/
