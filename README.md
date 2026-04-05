@@ -146,6 +146,32 @@ The extension still recognizes approved Memact hosts and can bridge to a Memact 
 
 That coupling is part of the runtime contract, but the website implementation itself no longer lives on this branch.
 
+## Hand Off To Influnet
+
+Captanet is the capture and memory side of the stack. A common workflow is:
+
+1. Run Captanet and let it collect activity.
+2. Export a snapshot through the bridge runtime:
+
+```js
+await window.captanet.exportSnapshot({
+  limit: 3000,
+  filename: "captanet-snapshot.json",
+});
+```
+
+3. Analyze that exported file with Influnet:
+
+```powershell
+cd ..\influnet
+npm run analyze -- --input <path-to-captanet-snapshot.json> --format report
+```
+
+This keeps the dependency direction clean:
+
+- Captanet captures and structures the memory stream
+- Influnet interprets the exported structure without touching Captanet internals
+
 ## Embedding And Reuse
 
 Technical answer:

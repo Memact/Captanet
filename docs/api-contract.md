@@ -54,9 +54,24 @@ Located in `extension/memact/captanet-api.js`.
   "domains": ["youtube.com"],
   "applications": ["chrome"],
   "mode": "reading",
-  "event_ids": [11, 12, 13]
+  "event_ids": [11, 12, 13],
+  "events": [
+    {
+      "id": 11,
+      "occurred_at": "2026-04-03T08:05:00.000Z",
+      "url": "https://youtube.com/watch?v=startup-ideas",
+      "domain": "youtube.com",
+      "application": "chrome",
+      "title": "Startup Ideas Video",
+      "context_subject": "startup",
+      "page_type": "video",
+      "structured_summary": "Saved page about startup."
+    }
+  ]
 }
 ```
+
+The nested `events` array is especially useful for downstream evidence-first systems such as Influnet because it preserves the page/domain/title trail behind a higher-level activity.
 
 ## Bridge Messages
 
