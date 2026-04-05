@@ -217,25 +217,79 @@ async function upsertSessionFromEvent(event) {
   await txDone(tx);
 }
 
-async function shouldSkipDuplicate(url, occurredAt) {
+const DUPLICATE_HARD_THROTTLE_MS = 20000;
+const DUPLICATE_FINGERPRINT_WINDOW_MS = 120000;
+const DUPLICATE_URL_FALLBACK_WINDOW_MS = 60000;
+
+function buildCaptureFingerprint(eventData = {}) {
+  return [
+    normalizeString(eventData.window_title).toLowerCase(),
+    normalizeString(eventData.interaction_type).toLowerCase(),
+    normalizeString(eventData.content_text).toLowerCase().slice(0, 240),
+    normalizeString(eventData.full_text).toLowerCase().slice(0, 320),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function readCaptureMemoryEntry(value) {
+  if (!value) {
+    return { occurredAt: 0, fingerprint: "" };
+  }
+  if (typeof value === "number") {
+    return {
+      occurredAt: Number(value) || 0,
+      fingerprint: "",
+    };
+  }
+  return {
+    occurredAt: Number(value.occurredAt || 0),
+    fingerprint: normalizeString(value.fingerprint).toLowerCase(),
+  };
+}
+
+async function shouldSkipDuplicate(url, occurredAt, fingerprint = "") {
   if (!url) {
     return false;
   }
   const map = (await getSettingValue("last_capture_by_url")) || {};
-  const last = Number(map[url] || 0);
+  const entry = readCaptureMemoryEntry(map[url]);
+  const last = entry.occurredAt;
   const now = toDateMs(occurredAt);
-  return last && now && now - last < 60000;
+  if (!last || !now) {
+    return false;
+  }
+
+  const elapsedMs = now - last;
+  if (elapsedMs < DUPLICATE_HARD_THROTTLE_MS) {
+    return true;
+  }
+
+  const normalizedFingerprint = normalizeString(fingerprint).toLowerCase();
+  if (normalizedFingerprint && normalizedFingerprint === entry.fingerprint) {
+    return elapsedMs < DUPLICATE_FINGERPRINT_WINDOW_MS;
+  }
+
+  if (!normalizedFingerprint || !entry.fingerprint) {
+    return elapsedMs < DUPLICATE_URL_FALLBACK_WINDOW_MS;
+  }
+
+  return false;
 }
 
-async function rememberCapture(url, occurredAt) {
+async function rememberCapture(url, occurredAt, fingerprint = "") {
   if (!url) {
     return;
   }
   const map = (await getSettingValue("last_capture_by_url")) || {};
-  map[url] = toDateMs(occurredAt) || Date.now();
+  map[url] = {
+    occurredAt: toDateMs(occurredAt) || Date.now(),
+    fingerprint: normalizeString(fingerprint).toLowerCase(),
+  };
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   for (const [key, value] of Object.entries(map)) {
-    if (Number(value || 0) < cutoff) {
+    const entry = readCaptureMemoryEntry(value);
+    if (entry.occurredAt < cutoff) {
       delete map[key];
     }
   }
@@ -246,8 +300,9 @@ export async function appendEvent(eventData) {
   const db = await getDb();
   const occurredAt = normalizeString(eventData.occurred_at) || new Date().toISOString();
   const url = normalizeString(eventData.url);
+  const fingerprint = buildCaptureFingerprint(eventData);
 
-  if (await shouldSkipDuplicate(url, occurredAt)) {
+  if (await shouldSkipDuplicate(url, occurredAt, fingerprint)) {
     return { skipped: true, reason: "duplicate_url_window" };
   }
 
@@ -274,7 +329,7 @@ export async function appendEvent(eventData) {
   const id = await openRequest(store.add(event));
   await txDone(tx);
 
-  await rememberCapture(url, occurredAt);
+  await rememberCapture(url, occurredAt, fingerprint);
   await upsertSessionFromEvent({ ...event, id }).catch(() => {});
 
   return { skipped: false, id };

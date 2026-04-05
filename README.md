@@ -39,9 +39,15 @@ For supported pages it extracts and stores:
 Capture is triggered on:
 
 - page load and completed navigation
+- SPA route changes and hash/history updates
+- passive dwell while the page stays visible and focused
+- meaningful content mutations on the current page
+- media playback starts on the current page
 - tab activation and focused-window changes
 - debounced user interaction on the current page
   this now includes scrolling, typing, and text selection so the extension can capture updated page context instead of only first-load metadata
+
+Captanet now runs an automatic page-side heartbeat as well, so sustained reading or watching can still become part of the memory stream even when you are not actively scrolling or typing.
 
 ## What Does Not Stay Here
 
@@ -201,6 +207,8 @@ This keeps the dependency direction clean:
 ## Verify Content Capture
 
 After loading the extension, open a few real pages and interact with them for a few seconds by scrolling, selecting text, or typing.
+
+You do not have to manually trigger capture on every page anymore. Captanet automatically refreshes capture while you navigate, keep a page in focus, watch media, or stay on a page whose content keeps changing.
 
 Then export a snapshot from a bridge-enabled Memact host:
 

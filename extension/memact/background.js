@@ -43,6 +43,9 @@ const FULL_TEXT_MAX_LEN = 8000;
 const EMBED_WORKER_URL = chrome.runtime.getURL("embed-worker.js");
 const INTERACTION_CAPTURE_HINT_DELAY_MS = 1200;
 const INTERACTION_CAPTURE_MIN_INTERVAL_MS = 12000;
+const AUTO_CAPTURE_HEARTBEAT_MS = 90000;
+const AUTO_CAPTURE_MUTATION_DELAY_MS = 2200;
+const AUTO_CAPTURE_REASON_MAX_AGE_MS = 15000;
 const CAPTANET_AUTHORIZED_ORIGINS_KEY = "captanet_authorized_origins";
 const DEFAULT_SNAPSHOT_DOWNLOAD_PATH = "memact_ai/captanet-snapshot.json";
 
@@ -456,6 +459,55 @@ function isAllowedBridgeSender(sender) {
   return hasAuthorizedOrigin(sender.url);
 }
 
+function resolveInteractionType(active = {}) {
+  const captureReason = normalizeText(active.captureReason, 48).toLowerCase();
+  if (captureReason) {
+    if (captureReason.includes("input") || captureReason.includes("type")) {
+      return "type";
+    }
+    if (captureReason.includes("selection") || captureReason.includes("mouseup")) {
+      return "select";
+    }
+    if (captureReason.includes("scroll")) {
+      return "scroll";
+    }
+    if (captureReason.includes("media")) {
+      return "media";
+    }
+    if (
+      captureReason.includes("heartbeat") ||
+      captureReason.includes("focus") ||
+      captureReason.includes("visible") ||
+      captureReason.includes("pageshow")
+    ) {
+      return "dwell";
+    }
+    if (captureReason.includes("content")) {
+      return "content_change";
+    }
+    if (captureReason.includes("history") || captureReason.includes("route")) {
+      return "navigate";
+    }
+  }
+
+  if (active.typingActive) {
+    return "type";
+  }
+  if (active.selectionActive) {
+    return "select";
+  }
+  if (active.scrollingActive) {
+    return "scroll";
+  }
+  if (active.mediaActive) {
+    return "media";
+  }
+  if (active.passiveViewingActive) {
+    return "dwell";
+  }
+  return "navigate";
+}
+
 async function embedText(text) {
   try {
     const worker = ensureEmbedWorker();
@@ -509,21 +561,50 @@ async function captureActiveTabContext(tab) {
         readabilityReady,
         INTERACTION_CAPTURE_HINT_DELAY_MS,
         INTERACTION_CAPTURE_MIN_INTERVAL_MS,
+        AUTO_CAPTURE_HEARTBEAT_MS,
+        AUTO_CAPTURE_MUTATION_DELAY_MS,
+        AUTO_CAPTURE_REASON_MAX_AGE_MS,
       ],
       func: async (
         snippetMaxLen,
         fullTextMaxLen,
         canUseReadability,
         interactionCaptureHintDelayMs,
-        interactionCaptureMinIntervalMs
+        interactionCaptureMinIntervalMs,
+        autoCaptureHeartbeatMs,
+        autoCaptureMutationDelayMs,
+        autoCaptureReasonMaxAgeMs
       ) => {
         if (!window.__memactCaptureInstalled) {
           window.__memactCaptureInstalled = true;
           window.__memactLastInputAt = 0;
           window.__memactLastScrollAt = 0;
           window.__memactLastSelectionAt = 0;
+          window.__memactLastVisibilityAt = 0;
+          window.__memactLastMediaAt = 0;
+          window.__memactLastContentChangeAt = 0;
+          window.__memactLastCaptureReason = "navigate";
+          window.__memactLastCaptureReasonAt = Date.now();
+          window.__memactLastObservedUrl = location.href;
+          window.__memactLastObservedTitle = document.title || "";
+          window.__memactLastObservedSignature = "";
           window.__memactCaptureHintTimer = null;
+          window.__memactMutationHintTimer = null;
           window.__memactLastCaptureHintAt = 0;
+          const normalizeVisibleText = (value) =>
+            String(value || "")
+              .replace(/\s+/g, " ")
+              .trim();
+          const buildLightweightSignature = () => {
+            const mainNode =
+              document.querySelector("main, article, [role='main'], [role='article']") ||
+              document.body;
+            const excerpt = normalizeVisibleText(mainNode?.innerText || "").slice(0, 320);
+            return [location.pathname, document.title || "", excerpt]
+              .filter(Boolean)
+              .join(" | ")
+              .slice(0, 720);
+          };
           const scheduleCaptureHint = (reason, delay = interactionCaptureHintDelayMs) => {
             const now = Date.now();
             if (now - (window.__memactLastCaptureHintAt || 0) < interactionCaptureMinIntervalMs) {
@@ -532,6 +613,8 @@ async function captureActiveTabContext(tab) {
             clearTimeout(window.__memactCaptureHintTimer);
             window.__memactCaptureHintTimer = setTimeout(() => {
               window.__memactLastCaptureHintAt = Date.now();
+              window.__memactLastCaptureReason = String(reason || "interaction");
+              window.__memactLastCaptureReasonAt = Date.now();
               try {
                 chrome.runtime?.sendMessage?.({
                   type: "captureHint",
@@ -566,6 +649,93 @@ async function captureActiveTabContext(tab) {
             window.__memactLastSelectionAt = Date.now();
             scheduleCaptureHint("mouseup", 700);
           }, true);
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+              window.__memactLastVisibilityAt = Date.now();
+              scheduleCaptureHint("visible", 1100);
+            }
+          }, true);
+          window.addEventListener("focus", () => {
+            window.__memactLastVisibilityAt = Date.now();
+            scheduleCaptureHint("focus", 1100);
+          }, true);
+          window.addEventListener("pageshow", () => {
+            window.__memactLastVisibilityAt = Date.now();
+            scheduleCaptureHint("pageshow", 900);
+          }, true);
+          window.addEventListener("play", (event) => {
+            if (!(event.target instanceof HTMLMediaElement)) {
+              return;
+            }
+            window.__memactLastMediaAt = Date.now();
+            scheduleCaptureHint("media_play", 1800);
+          }, true);
+          const announceRouteChange = (reason = "history") => {
+            const nextUrl = location.href;
+            const nextTitle = document.title || "";
+            if (
+              nextUrl === window.__memactLastObservedUrl &&
+              nextTitle === window.__memactLastObservedTitle
+            ) {
+              return;
+            }
+            window.__memactLastObservedUrl = nextUrl;
+            window.__memactLastObservedTitle = nextTitle;
+            window.__memactLastObservedSignature = buildLightweightSignature();
+            scheduleCaptureHint(reason, 900);
+          };
+          const wrapHistoryMethod = (name) => {
+            const original = history[name];
+            if (typeof original !== "function") {
+              return;
+            }
+            history[name] = function (...args) {
+              const result = original.apply(this, args);
+              setTimeout(() => announceRouteChange(name), 80);
+              return result;
+            };
+          };
+          wrapHistoryMethod("pushState");
+          wrapHistoryMethod("replaceState");
+          window.addEventListener("popstate", () => announceRouteChange("history"), true);
+          window.addEventListener("hashchange", () => announceRouteChange("history"), true);
+          window.__memactLastObservedSignature = buildLightweightSignature();
+          const rootNode = document.documentElement || document.body;
+          if (rootNode && typeof MutationObserver === "function") {
+            const observer = new MutationObserver(() => {
+              if (document.visibilityState !== "visible") {
+                return;
+              }
+              clearTimeout(window.__memactMutationHintTimer);
+              window.__memactMutationHintTimer = setTimeout(() => {
+                const nextSignature = buildLightweightSignature();
+                if (
+                  !nextSignature ||
+                  nextSignature === window.__memactLastObservedSignature
+                ) {
+                  return;
+                }
+                window.__memactLastObservedSignature = nextSignature;
+                window.__memactLastContentChangeAt = Date.now();
+                scheduleCaptureHint("content_change", 1000);
+              }, autoCaptureMutationDelayMs);
+            });
+            observer.observe(rootNode, {
+              childList: true,
+              subtree: true,
+              characterData: true,
+            });
+            window.__memactMutationObserver = observer;
+          }
+          window.__memactHeartbeatTimer = setInterval(() => {
+            if (document.visibilityState !== "visible") {
+              return;
+            }
+            if (typeof document.hasFocus === "function" && !document.hasFocus()) {
+              return;
+            }
+            scheduleCaptureHint("heartbeat", 900);
+          }, autoCaptureHeartbeatMs);
         }
 
         const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -846,6 +1016,20 @@ async function captureActiveTabContext(tab) {
           (activeTag === "INPUT" || activeTag === "TEXTAREA" || isEditable);
         const scrollingActive =
           window.__memactLastScrollAt && now - window.__memactLastScrollAt < 4000;
+        const selectionActive =
+          window.__memactLastSelectionAt && now - window.__memactLastSelectionAt < 5000;
+        const mediaActive = window.__memactLastMediaAt && now - window.__memactLastMediaAt < 15000;
+        const passiveViewingActive =
+          document.visibilityState === "visible" &&
+          (typeof document.hasFocus !== "function" || document.hasFocus()) &&
+          !typingActive &&
+          !scrollingActive &&
+          !selectionActive;
+        const captureReason =
+          window.__memactLastCaptureReason &&
+          now - (window.__memactLastCaptureReasonAt || 0) < autoCaptureReasonMaxAgeMs
+            ? String(window.__memactLastCaptureReason || "")
+            : "";
         return {
           pageTitle,
           description,
@@ -856,7 +1040,11 @@ async function captureActiveTabContext(tab) {
           activeTag,
           activeType,
           typingActive,
-          scrollingActive
+          scrollingActive,
+          selectionActive,
+          mediaActive,
+          passiveViewingActive,
+          captureReason,
         };
       }
     });
@@ -876,7 +1064,11 @@ async function captureActiveTabContext(tab) {
       activeTag: normalizeText(result.activeTag, 40),
       activeType: normalizeText(result.activeType, 40),
       typingActive: Boolean(result.typingActive),
-      scrollingActive: Boolean(result.scrollingActive)
+      scrollingActive: Boolean(result.scrollingActive),
+      selectionActive: Boolean(result.selectionActive),
+      mediaActive: Boolean(result.mediaActive),
+      passiveViewingActive: Boolean(result.passiveViewingActive),
+      captureReason: normalizeText(result.captureReason, 48),
     };
 
     if (
@@ -983,12 +1175,9 @@ async function processAndStore(tabData) {
   contextProfile.captureIntent = captureIntent;
   contextProfile.clutterAudit = clutterAudit;
   contextProfile.localJudge = localJudge;
+  const interactionType = resolveInteractionType(active);
   contextProfile.selectiveMemory = evaluateSelectiveMemory(contextProfile, {
-    interactionType: active.typingActive
-      ? "type"
-      : active.scrollingActive
-        ? "scroll"
-        : "navigate",
+    interactionType,
   });
   if (shouldSkipCaptureProfile(contextProfile)) {
     return null;
@@ -1008,11 +1197,6 @@ async function processAndStore(tabData) {
     displayExcerpt: retainedContent.snippet || contextProfile.displayExcerpt,
     displayFullText: retainedContent.fullText || contextProfile.displayFullText,
   };
-  const interactionType = active.typingActive
-    ? "type"
-    : active.scrollingActive
-      ? "scroll"
-      : "navigate";
   const capturePacket = buildCapturePacket({
     tabData,
     activeContext: active,
