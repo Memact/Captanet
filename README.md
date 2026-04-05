@@ -183,7 +183,7 @@ await window.captanet.exportSnapshot({
 By default that export is written into the workspace root as:
 
 ```text
-C:\Users\sujay\Downloads\memact_ai\captanet-snapshot.json
+C:\Users\sujay\Downloads\memact_ai\captanet-snapshot-<timestamp>-<id>.json
 ```
 
 3. Analyze that exported file with Influnet:
@@ -248,6 +248,17 @@ If you want the file export explicitly:
 await window.captanet.downloadSnapshot({
   limit: 3000,
   filename: "memact_ai/captanet-snapshot.json",
+})
+```
+
+Captanet now appends a timestamp and random id automatically, so repeated exports do not overwrite each other.
+
+If you explicitly want the old browser-only download fallback, you can opt in:
+
+```js
+await window.captanet.exportSnapshot({
+  limit: 3000,
+  allowBrowserFallback: true,
 })
 ```
 

@@ -104,7 +104,7 @@ That runtime is provided by `extension/memact/page-api.js`, which is injected in
 - `window.captanet.exportSnapshot({ limit, filename, download })`
 - `window.captanet.downloadSnapshot({ limit, filename })`
 
-`exportSnapshot()` returns the same Captanet snapshot contract and, by default, asks the extension to save it into `memact_ai/captanet-snapshot.json` inside the user's Downloads workspace.
+`exportSnapshot()` returns the same Captanet snapshot contract and, by default, asks the extension to save it into `memact_ai/captanet-snapshot-<timestamp>-<id>.json` inside the user's Downloads workspace.
 
 `downloadSnapshot()` is a convenience wrapper when you only need the saved file metadata.
 

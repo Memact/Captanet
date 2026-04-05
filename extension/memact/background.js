@@ -146,8 +146,24 @@ function normalizeDownloadPath(value, fallback = DEFAULT_SNAPSHOT_DOWNLOAD_PATH)
   return normalized || fallback;
 }
 
+function buildUniqueSnapshotDownloadPath(value) {
+  const normalized = normalizeDownloadPath(value, DEFAULT_SNAPSHOT_DOWNLOAD_PATH);
+  const segments = normalized.split("/").filter(Boolean);
+  const rawFilename = segments.pop() || "captanet-snapshot.json";
+  const extensionMatch = rawFilename.match(/(\.[A-Za-z0-9]+)$/);
+  const extension = extensionMatch ? extensionMatch[1] : ".json";
+  const stem = rawFilename.slice(0, rawFilename.length - extension.length) || "captanet-snapshot";
+  const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const randomId =
+    typeof crypto?.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  const uniqueFilename = `${stem}-${timestamp}-${randomId}${extension}`;
+  return [...segments, uniqueFilename].join("/");
+}
+
 async function downloadSnapshotToWorkspace(snapshot, options = {}) {
-  const filename = normalizeDownloadPath(options.filename, DEFAULT_SNAPSHOT_DOWNLOAD_PATH);
+  const filename = buildUniqueSnapshotDownloadPath(options.filename);
   const payload = JSON.stringify(snapshot, null, 2);
   const blobUrl = URL.createObjectURL(
     new Blob([payload], {
@@ -159,7 +175,7 @@ async function downloadSnapshotToWorkspace(snapshot, options = {}) {
     const downloadId = await chrome.downloads.download({
       url: blobUrl,
       filename,
-      conflictAction: "overwrite",
+      conflictAction: "uniquify",
       saveAs: false,
     });
 

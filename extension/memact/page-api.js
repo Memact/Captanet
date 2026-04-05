@@ -93,6 +93,23 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function buildUniqueFallbackFilename(filename) {
+    const normalized = String(filename || DEFAULT_SNAPSHOT_FILENAME)
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter(Boolean)
+      .at(-1) || "captanet-snapshot.json";
+    const extensionMatch = normalized.match(/(\.[A-Za-z0-9]+)$/);
+    const extension = extensionMatch ? extensionMatch[1] : ".json";
+    const stem = normalized.slice(0, normalized.length - extension.length) || "captanet-snapshot";
+    const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const randomId =
+      typeof crypto?.randomUUID === "function"
+        ? crypto.randomUUID().replace(/-/g, "").slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    return `${stem}-${timestamp}-${randomId}${extension}`;
+  }
+
   window.addEventListener("message", (event) => {
     if (event.source !== window) {
       return;
@@ -161,6 +178,7 @@
         limit = 3000,
         filename = DEFAULT_SNAPSHOT_FILENAME,
         download = true,
+        allowBrowserFallback = false,
       } = options || {};
 
       if (!download) {
@@ -186,16 +204,19 @@
           fallback_download: false,
         };
         return snapshot;
-      } catch (_) {
+      } catch (error) {
+        if (!allowBrowserFallback) {
+          throw new Error(
+            `Captanet could not save the snapshot through the extension runtime. ${String(
+              error?.message || error || "Export failed."
+            )}`
+          );
+        }
         const snapshot = await this.getSnapshot({ limit });
         if (!snapshot) {
           throw new Error("Captanet did not return a snapshot.");
         }
-        const safeFilename = String(filename || DEFAULT_SNAPSHOT_FILENAME)
-          .replace(/\\/g, "/")
-          .split("/")
-          .filter(Boolean)
-          .at(-1) || "captanet-snapshot.json";
+        const safeFilename = buildUniqueFallbackFilename(filename);
         downloadJson(safeFilename, snapshot);
         snapshot.export_meta = {
           saved_to: safeFilename,
