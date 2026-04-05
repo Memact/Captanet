@@ -41,6 +41,8 @@ const MEMACT_SITE_URL = "https://www.memact.com";
 const SNIPPET_MAX_LEN = 280;
 const FULL_TEXT_MAX_LEN = 8000;
 const EMBED_WORKER_URL = chrome.runtime.getURL("embed-worker.js");
+const INTERACTION_CAPTURE_HINT_DELAY_MS = 1200;
+const INTERACTION_CAPTURE_MIN_INTERVAL_MS = 12000;
 
 let embedWorker = null;
 let embedWorkerReady = false;
@@ -399,17 +401,68 @@ async function captureActiveTabContext(tab) {
     const readabilityReady = await injectReadability(tab.id);
     const [injected] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      args: [SNIPPET_MAX_LEN, FULL_TEXT_MAX_LEN, readabilityReady],
-      func: async (snippetMaxLen, fullTextMaxLen, canUseReadability) => {
+      args: [
+        SNIPPET_MAX_LEN,
+        FULL_TEXT_MAX_LEN,
+        readabilityReady,
+        INTERACTION_CAPTURE_HINT_DELAY_MS,
+        INTERACTION_CAPTURE_MIN_INTERVAL_MS,
+      ],
+      func: async (
+        snippetMaxLen,
+        fullTextMaxLen,
+        canUseReadability,
+        interactionCaptureHintDelayMs,
+        interactionCaptureMinIntervalMs
+      ) => {
         if (!window.__memactCaptureInstalled) {
           window.__memactCaptureInstalled = true;
           window.__memactLastInputAt = 0;
           window.__memactLastScrollAt = 0;
+          window.__memactLastSelectionAt = 0;
+          window.__memactCaptureHintTimer = null;
+          window.__memactLastCaptureHintAt = 0;
+          const scheduleCaptureHint = (reason, delay = interactionCaptureHintDelayMs) => {
+            const now = Date.now();
+            if (now - (window.__memactLastCaptureHintAt || 0) < interactionCaptureMinIntervalMs) {
+              return;
+            }
+            clearTimeout(window.__memactCaptureHintTimer);
+            window.__memactCaptureHintTimer = setTimeout(() => {
+              window.__memactLastCaptureHintAt = Date.now();
+              try {
+                chrome.runtime?.sendMessage?.({
+                  type: "captureHint",
+                  reason: String(reason || "interaction"),
+                });
+              } catch {
+                // Keep capture local when the runtime bridge is unavailable.
+              }
+            }, delay);
+          };
           window.addEventListener("input", () => {
             window.__memactLastInputAt = Date.now();
+            scheduleCaptureHint("input", 900);
           }, true);
           window.addEventListener("scroll", () => {
             window.__memactLastScrollAt = Date.now();
+            scheduleCaptureHint("scroll", 1600);
+          }, true);
+          document.addEventListener("selectionchange", () => {
+            const selectionText = window.getSelection?.()?.toString?.() || "";
+            if (!String(selectionText || "").trim()) {
+              return;
+            }
+            window.__memactLastSelectionAt = Date.now();
+            scheduleCaptureHint("selection", 700);
+          }, true);
+          window.addEventListener("mouseup", () => {
+            const selectionText = window.getSelection?.()?.toString?.() || "";
+            if (!String(selectionText || "").trim()) {
+              return;
+            }
+            window.__memactLastSelectionAt = Date.now();
+            scheduleCaptureHint("mouseup", 700);
           }, true);
         }
 
@@ -1474,6 +1527,22 @@ chrome.webNavigation.onCompleted.addListener(
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message?.type) {
+    return false;
+  }
+
+  if (message.type === "captureHint") {
+    if (sender?.tab?.id && /^https?:|^file:/i.test(sender.tab.url || "")) {
+      queueSnapshot();
+      sendResponse({
+        ok: true,
+      });
+      return false;
+    }
+
+    sendResponse({
+      ok: false,
+      error: "missing_tab_context",
+    });
     return false;
   }
 

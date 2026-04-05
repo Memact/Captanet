@@ -24,6 +24,25 @@ It contains the capture pipeline, storage layer, session/activity builder, and t
 - structured snapshot export
 - extension bridge messages for approved Memact hosts
 
+## Capture Behavior
+
+Captanet captures more than URLs and titles.
+
+For supported pages it extracts and stores:
+
+- page title and description
+- selected text
+- snippet text
+- cleaned full page text
+- structured context fields such as subject, entities, topics, and capture packet blocks
+
+Capture is triggered on:
+
+- page load and completed navigation
+- tab activation and focused-window changes
+- debounced user interaction on the current page
+  this now includes scrolling, typing, and text selection so the extension can capture updated page context instead of only first-load metadata
+
 ## What Does Not Stay Here
 
 - website UI
@@ -171,6 +190,32 @@ This keeps the dependency direction clean:
 
 - Captanet captures and structures the memory stream
 - Influnet interprets the exported structure without touching Captanet internals
+
+## Verify Content Capture
+
+After loading the extension, open a few real pages and interact with them for a few seconds by scrolling, selecting text, or typing.
+
+Then export a snapshot from a bridge-enabled Memact host:
+
+```js
+const snapshot = await window.captanet.exportSnapshot({
+  limit: 3000,
+  filename: "captanet-snapshot.json",
+  download: false,
+});
+
+console.log(snapshot.events[0]);
+```
+
+You should see populated fields such as:
+
+- `content_text`
+- `full_text`
+- `display_full_text`
+- `context_profile`
+- `capture_packet`
+
+If `full_text` is consistently empty on a page, that page is either blocked from scripted capture, intentionally reduced to structured memory, or filtered as low-value/noisy content by Captanet's retention logic.
 
 ## Embedding And Reuse
 
