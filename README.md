@@ -10,7 +10,7 @@ It answers:
 
 This `main` branch is intentionally foundation-only.
 
-It contains the capture pipeline, storage layer, session/activity builder, and the extension-side API surface that downstream systems consume. The Memact website shell is not kept on this branch anymore.
+It contains the capture pipeline, storage layer, session/activity builder, and the extension-side API surface that downstream systems consume.
 
 ## What Stays In Captanet
 
@@ -51,25 +51,11 @@ Captanet now runs an automatic page-side heartbeat as well, so sustained reading
 
 ## What Does Not Stay Here
 
-- website UI
-- static website assets
-- Vite app shell
-- branding/media for the marketing site
+- product UI shells
+- marketing assets
 - web deployment scaffolding
 
-Those were split away from `main` to keep Captanet usable as a clean foundation repository.
-
-## Branch Layout
-
-- `main`
-  Foundation-only Captanet code.
-- `website`
-  Preserved website shell branch for the current Memact web experience.
-
-The idea is simple:
-
-- website code may depend on Captanet
-- Captanet should not carry website files in `main`
+Those concerns stay outside this repository so Captanet remains a clean foundation system.
 
 ## Public Integration Surface
 
@@ -167,14 +153,6 @@ npm run sync-vendors
 
 `npm run build` is intentionally the same packaging step as `npm run package-extension`.
 
-## Website Relationship
-
-The extension still recognizes approved Memact hosts and can bridge to a Memact website runtime.
-
-That coupling is part of the runtime contract, but the website implementation itself no longer lives on this branch.
-
-Captanet can also expose its page runtime on arbitrary websites, but only after you explicitly authorize the current origin by clicking the extension icon on that site once.
-
 ## Hand Off To Influnet
 
 Captanet is the capture and memory side of the stack. A common workflow is:
@@ -193,7 +171,7 @@ cd ..\influnet
 npm run analyze -- --format report
 ```
 
-4. If you want a point-in-time archive snapshot as well, you can still create one manually on `memact.com`, localhost, or any authorized site:
+4. If you want a point-in-time archive snapshot as well, you can still create one manually on any authorized host:
 
 ```js
 await window.captanet.exportSnapshot({
@@ -220,7 +198,7 @@ You do not have to manually trigger capture on every page anymore. Captanet auto
 
 You also do not have to manually export a snapshot for every Influnet run anymore. Captanet keeps a rolling `captanet-snapshot-latest.json` file refreshed automatically while it captures.
 
-Then export a snapshot from a bridge-enabled Memact host:
+Then export a snapshot from an authorized host:
 
 ```js
 const snapshot = await window.captanet.exportSnapshot({
@@ -241,11 +219,11 @@ You should see populated fields such as:
 
 If `full_text` is consistently empty on a page, that page is either blocked from scripted capture, intentionally reduced to structured memory, or filtered as low-value/noisy content by Captanet's retention logic.
 
-## Authorize Any Website
+## Authorize Any Origin
 
-If you want to use the page runtime on a site other than `memact.com` or localhost:
+If you want to use the page runtime on a host other than `memact.com` or localhost:
 
-1. Open that website.
+1. Open that host.
 2. Click the Captanet extension icon once.
 3. Refresh the page.
 4. Open DevTools and run:

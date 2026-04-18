@@ -93,7 +93,7 @@ Responses:
 
 ## Browser Runtime Export
 
-When a compatible Memact website host is running with the extension bridge enabled, the page exposes a small runtime API:
+When an authorized host is running with the extension bridge enabled, the page exposes a small runtime API:
 
 That runtime is provided by `extension/memact/page-api.js`, which is injected into the page by `extension/memact/bridge.js`.
 
@@ -115,7 +115,7 @@ This runtime is available by default on:
 - `memact.com`
 - localhost development hosts
 
-It can also be enabled on any other website after the user explicitly authorizes that origin by clicking the extension action on that site once.
+It can also be enabled on any other authorized origin after the user explicitly grants access by clicking the extension action on that host once.
 
 ## Dependency Rule
 
