@@ -168,7 +168,7 @@ function reasonForIntent(purpose, captureMode, profile) {
   const domain = hostnameFromUrl(profile?.url || "") || "this site";
   if (captureMode === "skip") {
     return purpose === "auth"
-      ? "Authentication pages should not be stored as browser memories."
+      ? "Authentication pages should not be stored as citation evidence."
       : `This looks like low-value browser chrome on ${domain}.`;
   }
   if (captureMode === "metadata") {

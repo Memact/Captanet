@@ -2,6 +2,8 @@
 
 Downstream Memact engines must consume Capture only through the public data contract.
 
+Capture is the source-of-truth evidence boundary for Memact's citation and answer engine. It should expose enough structured website-consumption data for downstream systems to cite what the user actually consumed, without forcing those systems to read Capture internals.
+
 ## Public Functions
 
 Located in `extension/memact/capture-api.js`.
@@ -72,6 +74,25 @@ Located in `extension/memact/capture-api.js`.
 ```
 
 The nested `events` array is especially useful for downstream evidence-first systems such as Inference, Origin, and Influence because it preserves the page/domain/title trail behind a higher-level activity.
+
+## Evidence Fields
+
+Downstream engines should prefer these evidence fields when available:
+
+- `url`
+- `domain`
+- `title`
+- `occurred_at`
+- `started_at`
+- `ended_at`
+- `content_text`
+- `full_text`
+- `display_full_text`
+- `context_profile`
+- `capture_packet`
+- nested activity `events`
+
+These fields are what let Memact answer with citations instead of unsupported summaries.
 
 ## Bridge Messages
 

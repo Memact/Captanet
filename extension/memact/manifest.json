@@ -3,7 +3,7 @@
   "name": "Memact",
   "version": "0.0.0",
   "version_name": "v0.0",
-  "description": "Local browser memory search.",
+  "description": "Capture consumed web activity for Memact citation and answer engines.",
   "icons": {
     "16": "icons/memact_16.png",
     "32": "icons/memact_32.png",
@@ -30,7 +30,7 @@
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
   },
   "action": {
-    "default_title": "Memact | Query the Past.",
+    "default_title": "Memact | Capture Evidence",
     "default_icon": {
       "16": "icons/memact_16.png",
       "32": "icons/memact_32.png",

@@ -10,6 +10,8 @@ It answers:
 
 This repository contains the browser extension, event capture pipeline, context extraction, storage, session/activity grouping, and the public snapshot API consumed by downstream Memact engines.
 
+Capture is the evidence layer for Memact's citation and answer engine. Its job is to preserve enough website-consumption context that downstream systems can later answer with citations instead of guessing.
+
 ## Pipeline Position
 
 ```text
@@ -21,17 +23,33 @@ Capture does not interpret thoughts. It records evidence.
 ## What Capture Does
 
 - captures browser activity
-- extracts page context and content where available
+- extracts page context and content from websites the user consumes
 - filters noisy or low-value events
 - stores local event history
 - builds sessions and activity groups
 - exports structured snapshots
 - maintains a rolling autosaved snapshot for downstream engines
 
+## Website Evidence Captured
+
+For supported pages, Capture stores the evidence needed for later citation:
+
+- URL, domain, title, page description, and timestamps
+- active tab, window, navigation, and route-change signals
+- dwell/visibility signals that show the page was actually consumed
+- scroll, typing, text selection, media playback, and content-mutation signals
+- snippets, cleaned page text, display text, and full extracted text where available
+- structured context profiles with topics, entities, page purpose, and capture intent
+- capture packets with important blocks, points, search terms, and source metadata
+- nested event trails inside activities so later answers can cite the original source
+
+Capture should collect enough useful context for citation while still filtering obvious noise, empty pages, auth screens, and low-value browser chrome.
+
 ## What Capture Does Not Do
 
 - infer cognitive schemas
 - decide what shaped a thought
+- generate answers
 - generate influence claims
 - own the product interface
 
@@ -45,10 +63,6 @@ Primary surface:
 
 - `extension/memact/capture-api.js`
 - `docs/api-contract.md`
-
-Compatibility note:
-
-The runtime object is still named `window.capture` and the snapshot files are still named `capture-snapshot-*.json` for extension compatibility. The public product/repo name is now `Capture`.
 
 Public functions:
 
