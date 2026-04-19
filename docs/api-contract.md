@@ -1,6 +1,6 @@
-# Captanet API Contract
+# Memact Capture API Contract
 
-Influnet must consume Captanet only through the public Captanet data contract.
+Downstream Memact engines must consume Capture only through the public data contract.
 
 ## Public Functions
 
@@ -71,7 +71,7 @@ Located in `extension/memact/captanet-api.js`.
 }
 ```
 
-The nested `events` array is especially useful for downstream evidence-first systems such as Influnet because it preserves the page/domain/title trail behind a higher-level activity.
+The nested `events` array is especially useful for downstream evidence-first systems such as Inference, Origin, and Influence because it preserves the page/domain/title trail behind a higher-level activity.
 
 ## Bridge Messages
 
@@ -108,7 +108,7 @@ That runtime is provided by `extension/memact/page-api.js`, which is injected in
 
 `downloadSnapshot()` is a convenience wrapper when you only need the saved file metadata.
 
-Separately from the page runtime, the extension now also maintains an automatic rolling export at `memact_ai/captanet-snapshot-latest.json` while new captures are being recorded. Influnet can consume that rolling file directly without requiring a manual console export on each run.
+Separately from the page runtime, the extension now also maintains an automatic rolling export at `memact_ai/captanet-snapshot-latest.json` while new captures are being recorded. Downstream engines can consume that rolling file directly without requiring a manual console export on each run.
 
 This runtime is available by default on:
 
@@ -119,6 +119,6 @@ It can also be enabled on any other authorized origin after the user explicitly 
 
 ## Dependency Rule
 
-- Captanet must not import Influnet.
-- Influnet may consume only the snapshot/activity contract above.
-- No Influnet code may read `db.js`, `context-pipeline.js`, or other Captanet internals directly.
+- Capture must not import Inference, Schema, Origin, Influence, or Interface.
+- Downstream engines may consume only the snapshot/activity contract above.
+- No downstream engine may read `db.js`, `context-pipeline.js`, or other Capture internals directly.

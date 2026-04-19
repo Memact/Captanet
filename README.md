@@ -1,70 +1,54 @@
-# Captanet
-
-Captanet is the foundation memory engine behind Memact.
+# Memact Capture
 
 Version: `v0.0`
 
+Capture is the observation layer in the Memact architecture.
+
 It answers:
 
-`What happened?`
+`What did the user encounter?`
 
-This `main` branch is intentionally foundation-only.
+This repository contains the browser extension, event capture pipeline, context extraction, storage, session/activity grouping, and the public snapshot API consumed by downstream Memact engines.
 
-It contains the capture pipeline, storage layer, session/activity builder, and the extension-side API surface that downstream systems consume.
+## Pipeline Position
 
-## What Stays In Captanet
+```text
+Capture -> Inference -> Schema -> Interface / Query -> Origin + Influence
+```
 
-- browser activity capture
-- noise filtering and capture intent
-- context extraction
-- selective memory and retention scoring
-- local event storage
-- session detection
-- semantic activity grouping
-- structured snapshot export
-- extension bridge messages for approved Memact hosts
+Capture does not interpret thoughts. It records evidence.
 
-## Capture Behavior
+## What Capture Does
 
-Captanet captures more than URLs and titles.
+- captures browser activity
+- extracts page context and content where available
+- filters noisy or low-value events
+- stores local event history
+- builds sessions and activity groups
+- exports structured snapshots
+- maintains a rolling autosaved snapshot for downstream engines
 
-For supported pages it extracts and stores:
+## What Capture Does Not Do
 
-- page title and description
-- selected text
-- snippet text
-- cleaned full page text
-- structured context fields such as subject, entities, topics, and capture packet blocks
+- infer cognitive schemas
+- decide what shaped a thought
+- generate influence claims
+- own the product interface
 
-Capture is triggered on:
-
-- page load and completed navigation
-- SPA route changes and hash/history updates
-- passive dwell while the page stays visible and focused
-- meaningful content mutations on the current page
-- media playback starts on the current page
-- tab activation and focused-window changes
-- debounced user interaction on the current page
-  this now includes scrolling, typing, and text selection so the extension can capture updated page context instead of only first-load metadata
-
-Captanet now runs an automatic page-side heartbeat as well, so sustained reading or watching can still become part of the memory stream even when you are not actively scrolling or typing.
-
-## What Does Not Stay Here
-
-- product UI shells
-- marketing assets
-- web deployment scaffolding
-
-Those concerns stay outside this repository so Captanet remains a clean foundation system.
+Those concerns belong to Inference, Schema, Origin, Influence, and Interface.
 
 ## Public Integration Surface
 
-Captanet should be integrated through its public contract, not by reaching into internals.
+Downstream systems should consume Capture only through the public snapshot/API boundary.
 
 Primary surface:
 
 - `extension/memact/captanet-api.js`
 - `docs/api-contract.md`
+
+Compatibility note:
+
+The runtime object is still named `window.captanet` and the snapshot files are still named `captanet-snapshot-*.json` for extension compatibility. The public product/repo name is now `Capture`.
 
 Public functions:
 
@@ -75,28 +59,31 @@ Public functions:
 
 ## Snapshot Export
 
-Captanet exposes a deterministic snapshot contract for downstream consumers such as Influnet.
-
-That contract contains:
+Capture snapshots contain:
 
 - `events`
 - `sessions`
 - `activities`
 
-Influnet and future consumers should use this export boundary instead of importing `db.js`, `context-pipeline.js`, or other internal modules directly.
+The extension automatically refreshes a rolling snapshot while it captures:
 
-Captanet now also autosaves a rolling snapshot file in the workspace root while it is capturing. That means the browser extension can keep Influnet fed without requiring a manual console export on every run.
+```text
+C:\Users\sujay\Downloads\memact_ai\captanet-snapshot-latest.json
+```
 
-## Repository Layout
+Manual archive exports are still available from an authorized page:
 
-- `extension/memact/`
-  Core extension runtime, capture pipeline, storage, session/activity model, and bridge.
-- `docs/api-contract.md`
-  Public Captanet contract.
-- `scripts/sync-transformers.mjs`
-  Syncs extension vendor assets from installed dependencies.
-- `scripts/package-extension.mjs`
-  Packages the extension into `artifacts/memact-extension.zip`.
+```js
+await window.captanet.exportSnapshot({
+  limit: 3000,
+});
+```
+
+Manual exports are written as:
+
+```text
+C:\Users\sujay\Downloads\memact_ai\captanet-snapshot-<timestamp>-<id>.json
+```
 
 ## Terminal Quickstart
 
@@ -104,7 +91,7 @@ Prerequisites:
 
 - Node.js `20+`
 - npm `10+`
-- a Chromium-based browser if you want to load the extension locally
+- a Chromium-based browser for extension loading
 
 Install dependencies:
 
@@ -112,175 +99,80 @@ Install dependencies:
 npm install
 ```
 
-Run the repository validation pass:
+Run validation:
 
 ```powershell
 npm run check
 ```
 
-Package the extension artifact:
+Package the extension:
 
 ```powershell
 npm run package-extension
 ```
 
-The packaged extension zip is written to:
+The packaged extension is written to:
 
 ```text
 artifacts/memact-extension.zip
 ```
 
-Load the extension for local use:
+Load locally:
 
-1. Run `npm run package-extension`.
-2. Extract `artifacts/memact-extension.zip` to a local folder.
-3. Open `chrome://extensions` or `edge://extensions`.
-4. Enable Developer Mode.
-5. Click `Load unpacked`.
-6. Select the extracted extension folder.
+1. Open `chrome://extensions` or `edge://extensions`.
+2. Enable Developer Mode.
+3. Click `Load unpacked`.
+4. Select `extension/memact/` or the extracted package folder.
 
-If you are iterating on the source directly, you can also load:
+## Verify Capture
 
-```text
-extension/memact/
+After loading the extension, browse normally and interact with real pages.
+
+Capture refreshes on:
+
+- navigation
+- SPA route changes
+- tab/window focus changes
+- visible page dwell
+- meaningful content mutations
+- media playback
+- scroll, typing, and text selection activity
+
+To inspect a snapshot from an authorized page:
+
+```js
+const snapshot = await window.captanet.getSnapshot({ limit: 50 });
+console.log(snapshot.activities[0]);
 ```
 
-Manual vendor refresh remains available when needed:
+## Downstream Flow
+
+The intended local pipeline is:
 
 ```powershell
-npm run sync-vendors
+cd ..\inference
+npm run infer -- --input ..\captanet-snapshot-latest.json --format json
 ```
 
-`npm run build` is intentionally the same packaging step as `npm run package-extension`.
+Then feed the Inference output into Schema, Origin, Influence, or Interface.
 
-## Hand Off To Influnet
+## Repository Layout
 
-Captanet is the capture and memory side of the stack. A common workflow is:
-
-1. Run Captanet and let it collect activity.
-2. Captanet automatically refreshes a rolling snapshot at:
-
-```text
-C:\Users\sujay\Downloads\memact_ai\captanet-snapshot-latest.json
-```
-
-3. Analyze that snapshot with Influnet:
-
-```powershell
-cd ..\influnet
-npm run analyze -- --format report
-```
-
-4. If you want a point-in-time archive snapshot as well, you can still create one manually on any authorized host:
-
-```js
-await window.captanet.exportSnapshot({
-  limit: 3000,
-});
-```
-
-That manual archive export is written into the workspace root as:
-
-```text
-C:\Users\sujay\Downloads\memact_ai\captanet-snapshot-<timestamp>-<id>.json
-```
-
-This keeps the dependency direction clean:
-
-- Captanet captures and structures the memory stream
-- Influnet interprets the exported structure without touching Captanet internals
-
-## Verify Content Capture
-
-After loading the extension, open a few real pages and interact with them for a few seconds by scrolling, selecting text, or typing.
-
-You do not have to manually trigger capture on every page anymore. Captanet automatically refreshes capture while you navigate, keep a page in focus, watch media, or stay on a page whose content keeps changing.
-
-You also do not have to manually export a snapshot for every Influnet run anymore. Captanet keeps a rolling `captanet-snapshot-latest.json` file refreshed automatically while it captures.
-
-Then export a snapshot from an authorized host:
-
-```js
-const snapshot = await window.captanet.exportSnapshot({
-  limit: 3000,
-  download: false,
-});
-
-console.log(snapshot.events[0]);
-```
-
-You should see populated fields such as:
-
-- `content_text`
-- `full_text`
-- `display_full_text`
-- `context_profile`
-- `capture_packet`
-
-If `full_text` is consistently empty on a page, that page is either blocked from scripted capture, intentionally reduced to structured memory, or filtered as low-value/noisy content by Captanet's retention logic.
-
-## Authorize Any Origin
-
-If you want to use the page runtime on a host other than `memact.com` or localhost:
-
-1. Open that host.
-2. Click the Captanet extension icon once.
-3. Refresh the page.
-4. Open DevTools and run:
-
-```js
-await window.captanet.waitUntilReady()
-```
-
-After that, the same runtime API is available on that authorized origin:
-
-```js
-await window.captanet.getSnapshot({ limit: 50 })
-```
-
-If you want the file export explicitly:
-
-```js
-await window.captanet.downloadSnapshot({
-  limit: 3000,
-})
-```
-
-Captanet writes that export into:
-
-```text
-C:\Users\sujay\Downloads\memact_ai\captanet-snapshot-<timestamp>-<id>.json
-```
-
-It appends the timestamp and random id automatically, so repeated exports do not overwrite each other.
-
-If you explicitly want the old browser-only download fallback, you can opt in:
-
-```js
-await window.captanet.exportSnapshot({
-  limit: 3000,
-  allowBrowserFallback: true,
-})
-```
-
-This is intentionally explicit. Captanet does not expose your memory API to every visited site by default.
+- `extension/memact/`
+  Core extension runtime, capture pipeline, storage, session/activity model, and bridge.
+- `docs/api-contract.md`
+  Public Capture contract.
+- `scripts/sync-transformers.mjs`
+  Syncs extension vendor assets.
+- `scripts/package-extension.mjs`
+  Packages the extension into `artifacts/memact-extension.zip`.
 
 ## Embedding And Reuse
 
-Technical answer:
+Capture is reusable inside Memact-controlled projects through its public API and snapshot contract.
 
-- yes, Captanet is structured to be reused across future Memact-controlled projects
-- the stable reuse boundary is its API/snapshot contract
-- new projects should consume snapshots or the exported API, not copy foundation code into product shells
-
-License answer:
-
-- the current license is proprietary
-- you can reuse Captanet inside your own Memact-controlled projects
-- it is not currently licensed for open third-party embedding or redistribution
+The current license is proprietary. It is not licensed for open third-party embedding or redistribution.
 
 ## License
-
-This repository uses the same license text as the original Memact codebase.
 
 See `LICENSE`.

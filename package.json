@@ -1,12 +1,12 @@
 {
-  "name": "captanet",
+  "name": "memact-capture",
   "private": true,
   "version": "0.0.0",
-  "description": "Captanet foundation memory engine and browser extension.",
+  "description": "Memact Capture engine and browser extension.",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "keywords": [
-    "captanet",
+    "capture",
     "memory",
     "capture",
     "sessions",
@@ -15,9 +15,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Memact/Captanet.git"
+    "url": "https://github.com/Memact/Capture.git"
   },
-  "homepage": "https://github.com/Memact/Captanet",
+  "homepage": "https://github.com/Memact/Capture",
   "engines": {
     "node": ">=20"
   },
