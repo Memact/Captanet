@@ -15,7 +15,7 @@ Capture is the evidence layer for Memact's citation and answer engine. Its job i
 ## Pipeline Position
 
 ```text
-Capture -> Inference -> Schema -> Interface / Query -> Origin + Influence
+Capture -> Inference -> Schema -> Interface / Query -> Influence / Origin
 ```
 
 Capture does not interpret thoughts. It records evidence.
@@ -53,7 +53,7 @@ Capture should collect enough useful context for citation while still filtering 
 - generate influence claims
 - own the product interface
 
-Those concerns belong to Inference, Schema, Origin, Influence, and Interface.
+Those concerns belong to Inference, Schema, Interface, Influence, and Origin.
 
 ## Public Integration Surface
 
@@ -168,7 +168,7 @@ cd ..\inference
 npm run infer -- --input ..\capture-snapshot-latest.json --format json
 ```
 
-Then feed the Inference output into Schema, Origin, Influence, or Interface.
+Then feed the Inference output into Schema. Interface / Query can then invoke Influence and Origin with evidence preserved.
 
 ## Repository Layout
 

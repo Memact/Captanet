@@ -140,6 +140,6 @@ It can also be enabled on any other authorized origin after the user explicitly 
 
 ## Dependency Rule
 
-- Capture must not import Inference, Schema, Origin, Influence, or Interface.
+- Capture must not import Inference, Schema, Interface, Influence, or Origin.
 - Downstream engines may consume only the snapshot/activity contract above.
 - No downstream engine may read `db.js`, `context-pipeline.js`, or other Capture internals directly.
