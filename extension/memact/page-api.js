@@ -173,6 +173,14 @@
       const response = await expectCaptureResponse("CAPTURE_GET_SNAPSHOT", options);
       return response.snapshot || null;
     },
+    async getBootstrapStatus() {
+      const response = await expectCaptureResponse("CAPTURE_BOOTSTRAP_STATUS", {});
+      return response.bootstrap || null;
+    },
+    async bootstrapHistory(options = {}) {
+      const response = await expectCaptureResponse("CAPTURE_BOOTSTRAP_HISTORY", options);
+      return response.bootstrap || null;
+    },
     async exportSnapshot(options = {}) {
       const {
         limit = 3000,

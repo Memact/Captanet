@@ -20,6 +20,15 @@ Capture -> Inference -> Schema -> Interface / Query -> Influence / Origin
 
 Capture does not interpret thoughts. It records evidence.
 
+## First-Use Bootstrap
+
+Capture now seeds the local store on first use with a limited import of recent browser history. This prevents downstream layers from starting completely empty.
+
+- The import stays local to the extension.
+- It creates deterministic metadata-based event records.
+- It runs once by default and can be requested again through the bridge.
+- Those imported events are a starting layer until richer live capture takes over.
+
 ## What Capture Does
 
 - captures browser activity

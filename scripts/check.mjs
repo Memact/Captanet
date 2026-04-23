@@ -9,6 +9,7 @@ const projectRoot = path.resolve(__dirname, '..')
 
 const requiredPaths = [
   'extension/memact/background.js',
+  'extension/memact/bootstrap-import.js',
   'extension/memact/bridge.js',
   'extension/memact/capture-api.js',
   'extension/memact/embed-worker.js',
@@ -22,6 +23,7 @@ const requiredPaths = [
 
 const syntaxCheckTargets = [
   'extension/memact/background.js',
+  'extension/memact/bootstrap-import.js',
   'extension/memact/bridge.js',
   'extension/memact/capture-api.js',
   'extension/memact/embed-worker.js',

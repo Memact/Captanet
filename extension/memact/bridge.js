@@ -209,6 +209,27 @@ window.addEventListener("message", async (event) => {
         response,
         requestId
       });
+    } else if (type === "CAPTURE_BOOTSTRAP_STATUS") {
+      const response = await chrome.runtime.sendMessage({
+        type: "captureBootstrapStatus"
+      });
+      forwardToPage({
+        type: "CAPTURE_BOOTSTRAP_STATUS_RESULT",
+        response,
+        requestId
+      });
+    } else if (type === "CAPTURE_BOOTSTRAP_HISTORY") {
+      const response = await chrome.runtime.sendMessage({
+        type: "captureBootstrapHistory",
+        force: Boolean(payload?.force),
+        days: payload?.days || 21,
+        limit: payload?.limit || 320
+      });
+      forwardToPage({
+        type: "CAPTURE_BOOTSTRAP_HISTORY_RESULT",
+        response,
+        requestId
+      });
     } else if (type === "CAPTURE_EXPORT_SNAPSHOT") {
       const response = await chrome.runtime.sendMessage({
         type: "captureExportSnapshot",

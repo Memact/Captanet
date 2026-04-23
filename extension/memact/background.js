@@ -35,6 +35,10 @@ import {
   stopBrainQuery,
   warmBrainRouter,
 } from "./brain-router.js";
+import {
+  getBootstrapImportState,
+  runBootstrapImport,
+} from "./bootstrap-import.js";
 
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 const MEMACT_SITE_URL = "https://www.memact.com";
@@ -2005,6 +2009,17 @@ chrome.runtime.onInstalled.addListener(() => {
   initDB().catch(() => {});
   ensureAutoExportAlarm();
   queueSnapshot();
+  runBootstrapImport()
+    .then((result) => {
+      if (result?.ok && !result?.skipped) {
+        queueSnapshot();
+        maybeAutoExportLatestSnapshot({
+          reason: "history_bootstrap",
+          force: true,
+        }).catch(() => {});
+      }
+    })
+    .catch(() => {});
   maybeAutoExportLatestSnapshot({
     reason: "install",
     force: true,
@@ -2016,6 +2031,17 @@ chrome.runtime.onStartup.addListener(() => {
   initDB().catch(() => {});
   ensureAutoExportAlarm();
   queueSnapshot();
+  runBootstrapImport()
+    .then((result) => {
+      if (result?.ok && !result?.skipped) {
+        queueSnapshot();
+        maybeAutoExportLatestSnapshot({
+          reason: "history_bootstrap",
+          force: true,
+        }).catch(() => {});
+      }
+    })
+    .catch(() => {});
   maybeAutoExportLatestSnapshot({
     reason: "startup",
     force: true,
@@ -2261,8 +2287,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "status") {
-    Promise.all([getEventCount(), getSessionCount(), getAutoExportState()])
-      .then(([eventCount, sessionCount, autoExportState]) =>
+    Promise.all([
+      getEventCount(),
+      getSessionCount(),
+      getAutoExportState(),
+      getBootstrapImportState(),
+    ])
+      .then(([eventCount, sessionCount, autoExportState, bootstrapState]) =>
         sendResponse({
           ready: true,
           eventCount,
@@ -2278,6 +2309,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               normalizeText(autoExportState?.exported_at, 80) || "",
             lastReason: normalizeText(autoExportState?.last_reason, 48) || "",
           },
+          bootstrap: bootstrapState,
         })
       )
       .catch((error) =>
@@ -2293,6 +2325,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             lastExportedAt: "",
             lastReason: "",
           },
+          bootstrap: {
+            status: "error",
+            error: String(error?.message || error || "status failed"),
+          },
+        })
+      );
+    return true;
+  }
+
+  if (message.type === "captureBootstrapStatus") {
+    getBootstrapImportState()
+      .then((bootstrap) =>
+        sendResponse({
+          ok: true,
+          bootstrap,
+        })
+      )
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: String(error?.message || error || "capture bootstrap status failed"),
+          bootstrap: null,
+        })
+      );
+    return true;
+  }
+
+  if (message.type === "captureBootstrapHistory") {
+    runBootstrapImport({
+      force: Boolean(message.force),
+      days: message.days,
+      limit: message.limit,
+    })
+      .then((bootstrap) => {
+        if (bootstrap?.ok && !bootstrap?.skipped) {
+          queueSnapshot();
+          maybeAutoExportLatestSnapshot({
+            reason: "history_bootstrap",
+            force: true,
+          }).catch(() => {});
+        }
+        sendResponse({
+          ok: Boolean(bootstrap?.ok),
+          bootstrap,
+        });
+      })
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: String(error?.message || error || "capture bootstrap failed"),
+          bootstrap: null,
         })
       );
     return true;
