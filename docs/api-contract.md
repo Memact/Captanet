@@ -143,3 +143,17 @@ It can also be enabled on any other authorized origin after the user explicitly 
 - Capture must not import Inference, Schema, Interface, Influence, or Origin.
 - Downstream engines may consume only the snapshot/activity contract above.
 - No downstream engine may read `db.js`, `context-pipeline.js`, or other Capture internals directly.
+
+## Platform Rule
+
+Capture is the evidence source for every Memact client, not only the website.
+
+Future Android capture should produce the same public snapshot shape:
+
+- `events`
+- `sessions`
+- `activities`
+- evidence fields such as `url`, `title`, `domain`, timestamps, and captured text
+
+Future API explanation should never call Capture internals.
+It should receive downstream evidence envelopes produced from this public contract.
