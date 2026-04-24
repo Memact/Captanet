@@ -36,8 +36,8 @@ import {
   warmBrainRouter,
 } from "./brain-router.js";
 import {
+  beginBootstrapImport,
   getBootstrapImportState,
-  runBootstrapImport,
 } from "./bootstrap-import.js";
 
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
@@ -2009,17 +2009,6 @@ chrome.runtime.onInstalled.addListener(() => {
   initDB().catch(() => {});
   ensureAutoExportAlarm();
   queueSnapshot();
-  runBootstrapImport()
-    .then((result) => {
-      if (result?.ok && !result?.skipped) {
-        queueSnapshot();
-        maybeAutoExportLatestSnapshot({
-          reason: "history_bootstrap",
-          force: true,
-        }).catch(() => {});
-      }
-    })
-    .catch(() => {});
   maybeAutoExportLatestSnapshot({
     reason: "install",
     force: true,
@@ -2031,17 +2020,6 @@ chrome.runtime.onStartup.addListener(() => {
   initDB().catch(() => {});
   ensureAutoExportAlarm();
   queueSnapshot();
-  runBootstrapImport()
-    .then((result) => {
-      if (result?.ok && !result?.skipped) {
-        queueSnapshot();
-        maybeAutoExportLatestSnapshot({
-          reason: "history_bootstrap",
-          force: true,
-        }).catch(() => {});
-      }
-    })
-    .catch(() => {});
   maybeAutoExportLatestSnapshot({
     reason: "startup",
     force: true,
@@ -2353,19 +2331,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "captureBootstrapHistory") {
-    runBootstrapImport({
+    beginBootstrapImport({
       force: Boolean(message.force),
       days: message.days,
       limit: message.limit,
     })
       .then((bootstrap) => {
-        if (bootstrap?.ok && !bootstrap?.skipped) {
-          queueSnapshot();
-          maybeAutoExportLatestSnapshot({
-            reason: "history_bootstrap",
-            force: true,
-          }).catch(() => {});
-        }
         sendResponse({
           ok: Boolean(bootstrap?.ok),
           bootstrap,

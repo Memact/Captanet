@@ -22,11 +22,12 @@ Capture does not interpret thoughts. It records evidence.
 
 ## First-Use Bootstrap
 
-Capture now seeds the local store on first use with a limited import of recent browser history. This prevents downstream layers from starting completely empty.
+Capture can seed the local store on first use with a limited import of recent browser history. This prevents downstream layers from starting completely empty.
 
 - The import stays local to the extension.
 - It creates deterministic metadata-based event records.
-- It runs once by default and can be requested again through the bridge.
+- The user must explicitly allow it from the Interface popup.
+- It can be requested again through the bridge.
 - Those imported events are a starting layer until richer live capture takes over.
 
 ## What Capture Does
@@ -146,6 +147,12 @@ Load locally:
 2. Enable Developer Mode.
 3. Click `Load unpacked`.
 4. Select `extension/memact/` or the extracted package folder.
+
+If Memact Interface is running, it can also offer the ready-to-download zip from:
+
+```text
+public/memact-extension.zip
+```
 
 ## Verify Capture
 

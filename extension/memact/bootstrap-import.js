@@ -1,12 +1,39 @@
 import { appendEvent } from "./db.js";
-import { buildSuggestionQueries, extractContextProfile, hostnameFromUrl, normalizeText } from "./context-pipeline.js";
+import {
+  buildSuggestionQueries,
+  extractContextProfile,
+  hostnameFromUrl,
+  normalizeText,
+} from "./context-pipeline.js";
 import { extractKeyphrases } from "./keywords.js";
 
 const CAPTURE_BOOTSTRAP_STATE_KEY = "capture_bootstrap_state";
 const DEFAULT_HISTORY_DAYS = 21;
 const DEFAULT_HISTORY_LIMIT = 320;
+const BASE_PROGRESS = 8;
+const IMPORT_PROGRESS_SPAN = 84;
+const PROGRESS_UPDATE_INTERVAL = 8;
 
 let importPromise = null;
+
+function buildDefaultState() {
+  return {
+    status: "idle",
+    stage: "idle",
+    imported_at: "",
+    imported_count: 0,
+    skipped_count: 0,
+    scanned_count: 0,
+    processed_count: 0,
+    total_count: 0,
+    history_days: DEFAULT_HISTORY_DAYS,
+    history_limit: DEFAULT_HISTORY_LIMIT,
+    progress_percent: 0,
+    note: "",
+    source: "history-bootstrap",
+    error: "",
+  };
+}
 
 function readBootstrapState() {
   return chrome.storage.local
@@ -19,6 +46,16 @@ function writeBootstrapState(state) {
   return chrome.storage.local.set({
     [CAPTURE_BOOTSTRAP_STATE_KEY]: state,
   });
+}
+
+async function updateBootstrapState(patch = {}) {
+  const current = (await readBootstrapState()) || buildDefaultState();
+  const next = {
+    ...current,
+    ...patch,
+  };
+  await writeBootstrapState(next);
+  return next;
 }
 
 function normalizeHistoryItems(items = []) {
@@ -99,11 +136,43 @@ function buildHistoryContext(item) {
   };
 }
 
-async function importHistoryItems(historyItems) {
+function buildRunningState(existingState, startedAt, historyDays, historyLimit) {
+  return {
+    ...existingState,
+    status: "running",
+    stage: "reading_history",
+    started_at: startedAt,
+    imported_at: "",
+    imported_count: 0,
+    skipped_count: 0,
+    scanned_count: 0,
+    processed_count: 0,
+    total_count: 0,
+    history_days: historyDays,
+    history_limit: historyLimit,
+    progress_percent: BASE_PROGRESS,
+    note: "Checking recent browser activity.",
+    source: "history-bootstrap",
+    error: "",
+  };
+}
+
+async function importHistoryItems(historyItems, baseState) {
   let importedCount = 0;
   let skippedCount = 0;
+  const totalCount = historyItems.length;
 
-  for (const item of historyItems) {
+  await updateBootstrapState({
+    ...baseState,
+    stage: "screening_activity",
+    scanned_count: totalCount,
+    total_count: totalCount,
+    progress_percent: totalCount ? 14 : 92,
+    note: "Calculating what to include and what to skip.",
+  });
+
+  for (let index = 0; index < historyItems.length; index += 1) {
+    const item = historyItems[index];
     const { profile, keyphrases } = buildHistoryContext(item);
     const occurredAt = new Date(item.lastVisitTime).toISOString();
     const suggestionQueries = buildSuggestionQueries(profile, { limit: 5 });
@@ -165,6 +234,28 @@ async function importHistoryItems(historyItems) {
     } else {
       importedCount += 1;
     }
+
+    const processedCount = index + 1;
+    if (
+      processedCount === totalCount ||
+      processedCount === 1 ||
+      processedCount % PROGRESS_UPDATE_INTERVAL === 0
+    ) {
+      const progressPercent = totalCount
+        ? BASE_PROGRESS + Math.round((processedCount / totalCount) * IMPORT_PROGRESS_SPAN)
+        : 96;
+      await updateBootstrapState({
+        ...baseState,
+        stage: "writing_events",
+        scanned_count: totalCount,
+        processed_count: processedCount,
+        imported_count: importedCount,
+        skipped_count: skippedCount,
+        total_count: totalCount,
+        progress_percent: Math.min(96, progressPercent),
+        note: "Saving useful activity for first-time suggestions.",
+      });
+    }
   }
 
   return {
@@ -175,50 +266,32 @@ async function importHistoryItems(historyItems) {
 
 export async function getBootstrapImportState() {
   const stored = await readBootstrapState();
-  return (
-    stored || {
-      status: "idle",
-      imported_at: "",
-      imported_count: 0,
-      skipped_count: 0,
-      scanned_count: 0,
-      history_days: DEFAULT_HISTORY_DAYS,
-      history_limit: DEFAULT_HISTORY_LIMIT,
-      source: "history-bootstrap",
-      error: "",
-    }
-  );
+  return stored || buildDefaultState();
 }
 
-export async function runBootstrapImport(options = {}) {
+export async function beginBootstrapImport(options = {}) {
   if (importPromise) {
-    return importPromise;
+    return getBootstrapImportState();
   }
 
   const force = Boolean(options.force);
   const historyDays = Math.max(1, Number(options.days || DEFAULT_HISTORY_DAYS));
   const historyLimit = Math.max(40, Number(options.limit || DEFAULT_HISTORY_LIMIT));
+  const existingState = await getBootstrapImportState();
+
+  if (!force && existingState.status === "complete" && Number(existingState.imported_count || 0) > 0) {
+    return {
+      ok: true,
+      skipped: true,
+      ...existingState,
+    };
+  }
+
+  const startedAt = new Date().toISOString();
+  const runningState = buildRunningState(existingState, startedAt, historyDays, historyLimit);
+  await writeBootstrapState(runningState);
 
   importPromise = (async () => {
-    const existingState = await getBootstrapImportState();
-    if (!force && existingState.status === "complete" && Number(existingState.imported_count || 0) > 0) {
-      return {
-        ok: true,
-        skipped: true,
-        ...existingState,
-      };
-    }
-
-    const startedAt = new Date().toISOString();
-    await writeBootstrapState({
-      ...existingState,
-      status: "running",
-      started_at: startedAt,
-      error: "",
-      history_days: historyDays,
-      history_limit: historyLimit,
-    });
-
     try {
       const historyItems = await chrome.history.search({
         text: "",
@@ -226,17 +299,19 @@ export async function runBootstrapImport(options = {}) {
         startTime: Date.now() - historyDays * 24 * 60 * 60 * 1000,
       });
       const normalizedItems = normalizeHistoryItems(historyItems).slice(0, historyLimit);
-      const importSummary = await importHistoryItems(normalizedItems);
+      const importSummary = await importHistoryItems(normalizedItems, runningState);
       const completedState = {
+        ...runningState,
         status: "complete",
-        started_at: startedAt,
+        stage: "complete",
         imported_at: new Date().toISOString(),
         imported_count: importSummary.importedCount,
         skipped_count: importSummary.skippedCount,
         scanned_count: normalizedItems.length,
-        history_days: historyDays,
-        history_limit: historyLimit,
-        source: "history-bootstrap",
+        processed_count: normalizedItems.length,
+        total_count: normalizedItems.length,
+        progress_percent: 100,
+        note: "Initial activity seeding is complete.",
         error: "",
       };
       await writeBootstrapState(completedState);
@@ -247,15 +322,17 @@ export async function runBootstrapImport(options = {}) {
       };
     } catch (error) {
       const failedState = {
+        ...runningState,
         status: "error",
-        started_at: startedAt,
+        stage: "error",
         imported_at: "",
         imported_count: 0,
         skipped_count: 0,
         scanned_count: 0,
-        history_days: historyDays,
-        history_limit: historyLimit,
-        source: "history-bootstrap",
+        processed_count: 0,
+        total_count: 0,
+        progress_percent: 0,
+        note: "",
         error: String(error?.message || error || "history bootstrap failed"),
       };
       await writeBootstrapState(failedState);
@@ -264,12 +341,22 @@ export async function runBootstrapImport(options = {}) {
         skipped: false,
         ...failedState,
       };
+    } finally {
+      importPromise = null;
     }
   })();
 
-  try {
-    return await importPromise;
-  } finally {
-    importPromise = null;
+  return {
+    ok: true,
+    skipped: false,
+    ...runningState,
+  };
+}
+
+export async function runBootstrapImport(options = {}) {
+  const startedState = await beginBootstrapImport(options);
+  if (startedState?.skipped || startedState?.status === "complete") {
+    return startedState;
   }
+  return importPromise || startedState;
 }
