@@ -217,6 +217,10 @@ function scheduleMemoryPulse(reason = "capture") {
   }, 700);
 }
 
+function ensureAutoExportAlarm() {
+  scheduleMemoryPulse("compat_auto_export_removed");
+}
+
 async function authorizeOrigin(origin) {
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin || isAllowedMemactOrigin(normalizedOrigin)) {
