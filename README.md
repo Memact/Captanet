@@ -40,7 +40,7 @@ Capture can seed the local store on first use with a limited import of recent br
 - builds sessions and activity groups
 - exports structured snapshots
 - ranks searches with local sentence-transformer embeddings
-- maintains a rolling autosaved snapshot for downstream engines
+- exposes local bridge APIs for downstream engines without automatic file downloads
 
 ## Website Evidence Captured
 
@@ -102,11 +102,9 @@ Capture snapshots contain:
 - `sessions`
 - `activities`
 
-The extension automatically refreshes a rolling snapshot while it captures:
+Capture stores activity locally inside the extension. It does not automatically download captured snapshots to the user's Downloads folder.
 
-```text
-C:\Users\sujay\Downloads\memact_ai\capture-snapshot-latest.json
-```
+Downstream systems should use the bridge API and `memorySignature` to request data only when the local memory changed.
 
 Manual archive exports are still available from an authorized page:
 
@@ -193,11 +191,11 @@ console.log(snapshot.activities[0]);
 The intended local pipeline is:
 
 ```powershell
-cd ..\inference
-npm run infer -- --input ..\capture-snapshot-latest.json --format json
+cd ..\website
+npm run dev
 ```
 
-Then feed the Inference output into Schema. Interface / Query can then invoke Influence and Origin with evidence preserved.
+Website / Query should ask Capture through the extension bridge. If a file-based run is needed for debugging, create a manual snapshot export first, then feed that file into Inference and Schema.
 
 ## Repository Layout
 

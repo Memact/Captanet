@@ -53,6 +53,7 @@ const INTERACTION_CAPTURE_MIN_INTERVAL_MS = 12000;
 const AUTO_CAPTURE_HEARTBEAT_MS = 90000;
 const AUTO_CAPTURE_MUTATION_DELAY_MS = 2200;
 const AUTO_CAPTURE_REASON_MAX_AGE_MS = 15000;
+const AUTO_EXPORT_ENABLED = false;
 const AUTO_EXPORT_INTERVAL_MINUTES = 3;
 const AUTO_EXPORT_MIN_INTERVAL_MS = 45000;
 const AUTO_EXPORT_SNAPSHOT_LIMIT = 3000;
@@ -282,6 +283,10 @@ async function setAutoExportState(state) {
 
 function ensureAutoExportAlarm() {
   try {
+    if (!AUTO_EXPORT_ENABLED) {
+      chrome.alarms.clear(AUTO_EXPORT_ALARM_NAME);
+      return;
+    }
     chrome.alarms.create(AUTO_EXPORT_ALARM_NAME, {
       periodInMinutes: AUTO_EXPORT_INTERVAL_MINUTES,
     });
@@ -291,6 +296,14 @@ function ensureAutoExportAlarm() {
 }
 
 async function maybeAutoExportLatestSnapshot(options = {}) {
+  if (!AUTO_EXPORT_ENABLED) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "auto_export_disabled",
+    };
+  }
+
   const force = Boolean(options.force);
   const reason = normalizeText(options.reason, 48) || "auto";
   const now = Date.now();
@@ -2293,9 +2306,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             Number(bootstrapState?.imported_count || 0),
           ].join("|"),
           autoExport: {
-            enabled: true,
+            enabled: AUTO_EXPORT_ENABLED,
             savedTo:
-              normalizeText(autoExportState?.saved_to, 240) || AUTO_EXPORT_DOWNLOAD_PATH,
+              normalizeText(autoExportState?.saved_to, 240) ||
+              (AUTO_EXPORT_ENABLED ? AUTO_EXPORT_DOWNLOAD_PATH : ""),
             lastExportedAt:
               normalizeText(autoExportState?.exported_at, 80) || "",
             lastReason: normalizeText(autoExportState?.last_reason, 48) || "",
@@ -2313,8 +2327,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           modelReady: Boolean(embedWorkerReady),
           error: String(error?.message || error || "status failed"),
           autoExport: {
-            enabled: true,
-            savedTo: AUTO_EXPORT_DOWNLOAD_PATH,
+            enabled: AUTO_EXPORT_ENABLED,
+            savedTo: AUTO_EXPORT_ENABLED ? AUTO_EXPORT_DOWNLOAD_PATH : "",
             lastExportedAt: "",
             lastReason: "",
           },

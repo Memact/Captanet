@@ -152,7 +152,7 @@ That runtime is provided by `extension/memact/page-api.js`, which is injected in
 
 `downloadSnapshot()` is a convenience wrapper when you only need the saved file metadata.
 
-Separately from the page runtime, the extension now also maintains an automatic rolling export at `memact_ai/capture-snapshot-latest.json` while new captures are being recorded. Downstream engines can consume that rolling file directly without requiring a manual console export on each run.
+Capture does not automatically download rolling snapshots. Live products should use `MEMACT_STATUS`, `memorySignature`, and `CAPTURE_GET_SNAPSHOT` through the bridge so captured data stays local and only moves when a Memact client requests it.
 
 This runtime is available by default on:
 
