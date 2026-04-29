@@ -39,7 +39,7 @@ Capture can seed the local store on first use with a limited import of recent br
 - stores local event history
 - builds sessions and activity groups
 - exposes structured snapshots through the bridge
-- ranks searches with local sentence-transformer embeddings
+- ranks searches with deterministic local embeddings
 - exposes local bridge APIs for downstream engines without automatic file downloads
 
 ## Website Evidence Captured
@@ -107,6 +107,15 @@ Capture uses a lightweight Memory Pulse model instead of repeated downloads.
 - Website refreshes its local knowledge only when that signature changes.
 - No captured snapshot is written to Downloads.
 - No full captured dataset is sent to Gemini. Downstream answers use selected schema/origin/influence evidence only.
+
+## Security Notes
+
+- Capture does not bundle WebLLM or remote transformer runtimes.
+- Capture does not download models at runtime.
+- The extension content bridge posts messages only to the current page origin.
+- Only authorized Memact pages can access the page bridge.
+- The packaged extension exposes only the page API as a web-accessible resource.
+- Broad host access is used only so Capture can observe activity across websites the user visits.
 
 ## Snapshot Access
 
@@ -215,7 +224,7 @@ Website / Query should ask Capture through the extension bridge. If a file-based
   Core extension runtime, capture pipeline, storage, session/activity model, and bridge.
 - `docs/api-contract.md`
   Public Capture contract.
-- `scripts/sync-transformers.mjs`
+- `scripts/sync-vendors.mjs`
   Syncs extension vendor assets.
 - `scripts/package-extension.mjs`
   Packages the extension into `artifacts/memact-extension.zip`.

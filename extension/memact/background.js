@@ -31,13 +31,6 @@ import {
   getSessions as getCaptureSessions,
 } from "./capture-api.js";
 import {
-  clearBrainConversation,
-  getBrainStatusSnapshot,
-  handleBrainQuery,
-  stopBrainQuery,
-  warmBrainRouter,
-} from "./brain-router.js";
-import {
   beginBootstrapImport,
   getBootstrapImportState,
   resetBootstrapImportState,
@@ -1890,14 +1883,6 @@ async function handleSearch(query, limit = 20) {
   return primaryResponse;
 }
 
-function emitBrainEvent(tabId, payload) {
-  if (!Number.isInteger(tabId)) {
-    return;
-  }
-
-  chrome.tabs.sendMessage(tabId, payload).catch(() => {});
-}
-
 chrome.runtime.onInstalled.addListener(() => {
   refreshAuthorizedBridgeOrigins().catch(() => {});
   initDB().catch(() => {});
@@ -1991,137 +1976,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           error: String(error?.message || error || "search failed"),
           results: []
-        })
-      );
-    return true;
-  }
-
-  if (message.type === "brainQuery") {
-    const tabId = sender?.tab?.id;
-    const requestId = normalizeText(message.requestId, 120);
-    const sessionId = normalizeText(message.sessionId, 120) || "default";
-
-    if (!Number.isInteger(tabId)) {
-      sendResponse({
-        ok: false,
-        error: "missing_tab_context",
-      });
-      return false;
-    }
-
-    handleBrainQuery({
-      requestId,
-      query: message.query,
-      sessionId,
-      embedText,
-      cosineSimilarity,
-      emit(event) {
-        if (event?.type === "progress") {
-          emitBrainEvent(tabId, {
-            type: "MEMACT_BRAIN_PROGRESS",
-            requestId,
-            sessionId,
-            progress: Number(event.progress || 0),
-            text: event.text || "",
-            loading: Boolean(event.loading),
-            fallbackMode: Boolean(event.fallbackMode),
-          });
-          return;
-        }
-
-        if (event?.type === "token") {
-          emitBrainEvent(tabId, {
-            type: "MEMACT_BRAIN_TOKEN",
-            requestId,
-            sessionId,
-            token: event.token || "",
-          });
-          return;
-        }
-
-        if (event?.type === "done") {
-          emitBrainEvent(tabId, {
-            type: "MEMACT_BRAIN_DONE",
-            requestId,
-            sessionId,
-            text: event.text || "",
-            answerMeta: event.answerMeta || null,
-            results: Array.isArray(event.results) ? event.results : [],
-            webResults: Array.isArray(event.webResults) ? event.webResults : [],
-            fallbackMode: Boolean(event.fallbackMode),
-            insufficientEvidence: Boolean(event.insufficientEvidence),
-            intent: event.intent || "",
-            mode: event.mode || "",
-          });
-          return;
-        }
-
-        if (event?.type === "error") {
-          emitBrainEvent(tabId, {
-            type: "MEMACT_BRAIN_ERROR",
-            requestId,
-            sessionId,
-            error: String(event.error || "brain query failed"),
-          });
-        }
-      },
-    }).catch((error) => {
-      emitBrainEvent(tabId, {
-        type: "MEMACT_BRAIN_ERROR",
-        requestId,
-        sessionId,
-        error: String(error?.message || error || "brain query failed"),
-      });
-    });
-
-    sendResponse({ ok: true, requestId, sessionId });
-    return false;
-  }
-
-  if (message.type === "brainStop") {
-    sendResponse({
-      ok: stopBrainQuery(message.targetRequestId),
-    });
-    return false;
-  }
-
-  if (message.type === "brainStatus") {
-    sendResponse({
-      ok: true,
-      ...getBrainStatusSnapshot(),
-    });
-    return false;
-  }
-
-  if (message.type === "brainWarm") {
-    warmBrainRouter()
-      .then((status) =>
-        sendResponse({
-          ok: true,
-          ...status,
-        })
-      )
-      .catch((error) =>
-        sendResponse({
-          ok: false,
-          ...getBrainStatusSnapshot(),
-          error: String(error?.message || error || "brain warm failed"),
-        })
-      );
-    return true;
-  }
-
-  if (message.type === "brainClearSession") {
-    clearBrainConversation(message.sessionId)
-      .then(() =>
-        sendResponse({
-          ok: true,
-        })
-      )
-      .catch((error) =>
-        sendResponse({
-          ok: false,
-          error: String(error?.message || error || "could not clear session"),
         })
       );
     return true;

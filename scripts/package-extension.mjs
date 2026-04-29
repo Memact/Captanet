@@ -113,8 +113,6 @@ async function bundleExtension() {
     external: [
       './vendor/flexsearch/index.js',
       './vendor/flexsearch/*',
-      './vendor/web-llm.mjs',
-      'worker_threads',
     ],
   })
 
@@ -156,7 +154,7 @@ async function bundleExtension() {
 
 async function main() {
   try {
-    await runCommand('node', ['scripts/sync-transformers.mjs'])
+    await runCommand('node', ['scripts/sync-vendors.mjs'])
     await bundleExtension()
     await createZipArchive()
     console.log(`Created ${path.relative(projectRoot, outputZip)}`)

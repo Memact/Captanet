@@ -1,7 +1,6 @@
-const MODEL_NAME = "Xenova/all-MiniLM-L6-v2";
+const MODEL_NAME = "memact-local-hash-embedding-v1";
 
-let extractorPromise = null;
-let modelReady = false;
+let modelReady = true;
 
 function normalizeVector(values) {
   const vector = Array.from(values || []).map((value) => Number(value) || 0);
@@ -40,89 +39,8 @@ async function hashEmbedding(text, dim = 384) {
   return normalizeVector(vector);
 }
 
-function getPipelineFactory() {
-  if (globalThis.transformers?.pipeline) {
-    return globalThis.transformers.pipeline;
-  }
-  if (typeof globalThis.pipeline === "function") {
-    return globalThis.pipeline;
-  }
-  return null;
-}
-
-async function tryLoadTransformers() {
-  if (extractorPromise) {
-    return extractorPromise;
-  }
-
-  extractorPromise = (async () => {
-    try {
-      if (!getPipelineFactory()) {
-        const urls = [
-          chrome.runtime?.getURL?.("transformers.min.js"),
-          chrome.runtime?.getURL?.("vendor/transformers.min.js")
-        ].filter(Boolean);
-        for (const url of urls) {
-          try {
-            importScripts(url);
-            if (getPipelineFactory()) {
-              break;
-            }
-          } catch {
-            // Try the next candidate or fall back to hashing.
-          }
-        }
-      }
-
-      const pipeline = getPipelineFactory();
-      if (!pipeline) {
-        throw new Error("transformers.js is not available");
-      }
-
-      const extractor = await pipeline("feature-extraction", MODEL_NAME, {
-        quantized: true,
-        progress_callback: (progress) => {
-          const value =
-            typeof progress === "number"
-              ? progress
-              : Number(progress?.progress ?? progress?.loaded ?? 0);
-          self.postMessage({
-            type: "loading_progress",
-            progress: Math.max(0, Math.min(1, value || 0))
-          });
-        }
-      });
-      modelReady = true;
-      return extractor;
-    } catch (error) {
-      extractorPromise = null;
-      modelReady = false;
-      throw error;
-    }
-  })();
-
-  return extractorPromise;
-}
-
 async function embedText(text) {
-  try {
-    const extractor = await tryLoadTransformers();
-    const output = await extractor(String(text || ""), {
-      pooling: "mean",
-      normalize: true
-    });
-
-    const raw =
-      output?.data ||
-      output?.tolist?.() ||
-      output?.values ||
-      output ||
-      [];
-    const vector = Array.from(raw, (value) => Number(value) || 0);
-    return normalizeVector(vector);
-  } catch {
-    return hashEmbedding(text);
-  }
+  return hashEmbedding(text);
 }
 
 self.addEventListener("message", async (event) => {

@@ -18,7 +18,7 @@ const requiredPaths = [
   'extension/memact/icons',
   'extension/memact/vendor',
   'scripts/package-extension.mjs',
-  'scripts/sync-transformers.mjs',
+  'scripts/sync-vendors.mjs',
 ]
 
 const syntaxCheckTargets = [
@@ -29,7 +29,7 @@ const syntaxCheckTargets = [
   'extension/memact/embed-worker.js',
   'extension/memact/page-api.js',
   'scripts/package-extension.mjs',
-  'scripts/sync-transformers.mjs',
+  'scripts/sync-vendors.mjs',
 ]
 
 async function ensurePathExists(relativePath) {

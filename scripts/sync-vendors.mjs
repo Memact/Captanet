@@ -7,18 +7,6 @@ const root = path.resolve(__dirname, '..')
 const vendorDir = path.join(root, 'extension', 'memact', 'vendor')
 const vendors = [
   {
-    source: path.join(
-      root,
-      'node_modules',
-      '@xenova',
-      'transformers',
-      'dist',
-      'transformers.min.js'
-    ),
-    target: path.join(vendorDir, 'transformers.min.js'),
-    label: 'transformers bundle',
-  },
-  {
     source: path.join(root, 'node_modules', 'dexie', 'dist', 'dexie.mjs'),
     target: path.join(vendorDir, 'dexie.mjs'),
     label: 'Dexie module',
@@ -34,16 +22,13 @@ const vendors = [
     target: path.join(vendorDir, 'pdf.min.mjs'),
     label: 'PDF.js module',
   },
-  {
-    source: path.join(root, 'node_modules', '@mlc-ai', 'web-llm', 'lib', 'index.js'),
-    target: path.join(vendorDir, 'web-llm.mjs'),
-    label: 'WebLLM module',
-  },
 ]
 
 async function main() {
   await mkdir(vendorDir, { recursive: true })
   await rm(path.join(vendorDir, 'flexsearch.min.mjs'), { force: true })
+  await rm(path.join(vendorDir, 'transformers.min.js'), { force: true })
+  await rm(path.join(vendorDir, 'web-llm.mjs'), { force: true })
 
   for (const vendor of vendors) {
     try {

@@ -64,7 +64,7 @@ async function isCurrentOriginAuthorized() {
 }
 
 function forwardToPage(message) {
-  window.postMessage(message, "*");
+  window.postMessage(message, window.location.origin);
 }
 
 function injectPageApi() {
@@ -266,56 +266,6 @@ window.addEventListener("message", async (event) => {
         response,
         requestId
       });
-    } else if (type === "MEMACT_BRAIN_QUERY") {
-      const response = await chrome.runtime.sendMessage({
-        type: "brainQuery",
-        query: payload?.query || "",
-        sessionId: payload?.sessionId || "default",
-        requestId
-      });
-      forwardToPage({
-        type: "MEMACT_BRAIN_QUERY_ACK",
-        response,
-        requestId
-      });
-    } else if (type === "MEMACT_BRAIN_STATUS") {
-      const response = await chrome.runtime.sendMessage({
-        type: "brainStatus"
-      });
-      forwardToPage({
-        type: "MEMACT_BRAIN_STATUS_RESULT",
-        response,
-        requestId
-      });
-    } else if (type === "MEMACT_BRAIN_WARM") {
-      const response = await chrome.runtime.sendMessage({
-        type: "brainWarm"
-      });
-      forwardToPage({
-        type: "MEMACT_BRAIN_WARM_RESULT",
-        response,
-        requestId
-      });
-    } else if (type === "MEMACT_BRAIN_STOP") {
-      const response = await chrome.runtime.sendMessage({
-        type: "brainStop",
-        targetRequestId: payload?.targetRequestId || ""
-      });
-      forwardToPage({
-        type: "MEMACT_BRAIN_STOP_RESULT",
-        response,
-        requestId
-      });
-    } else if (type === "MEMACT_BRAIN_CLEAR_SESSION") {
-      const response = await chrome.runtime.sendMessage({
-        type: "brainClearSession",
-        sessionId: payload?.sessionId || "default"
-      });
-      forwardToPage({
-        type: "MEMACT_BRAIN_CLEAR_SESSION_RESULT",
-        response,
-        requestId
-      });
     }
   } catch (error) {
     forwardToPage({
@@ -339,13 +289,7 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  if (!message?.type?.startsWith?.("MEMACT_BRAIN_")) {
-    return;
-  }
-
-  if (pageAccessEnabled) {
-    forwardToPage(message);
-  }
+  return;
 });
 
 refreshPageAccess({ announce: true }).catch(() => {});

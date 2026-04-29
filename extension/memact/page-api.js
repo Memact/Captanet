@@ -62,7 +62,7 @@
               payload,
               requestId,
             },
-            "*"
+            window.location.origin
           );
         })
     );
