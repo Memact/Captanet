@@ -1,10 +1,15 @@
 import {
+  appendGraphPacket,
   appendEvent,
   clearBootstrapImportedEvents,
   clearAllData,
   cosineSimilarity,
+  getContentUnitCount,
   getEventCount,
+  getGraphPacketCount,
   getLatestEventTimestamp,
+  getLatestGraphPacketTimestamp,
+  getPendingMediaJobCount,
   getRecentEvents,
   getSessionCount,
   getStats,
@@ -24,10 +29,14 @@ import { answerLocalQuery } from "./query-engine.js";
 import { extractPdfTextFromUrl, looksLikePdfResource } from "./pdf-support.js";
 import { getIndexedSearchCandidates, invalidateEventSearchIndex } from "./search-index.js";
 import { buildCapturePacket } from "./capture-packet.js";
+import { buildMultimediaGraphPacket } from "./multimedia-graph.js";
 import {
   getActivities as getCaptureActivities,
   getCaptureSnapshot,
+  getContentUnits as getCaptureContentUnits,
   getEvents as getCaptureEvents,
+  getGraphPackets as getCaptureGraphPackets,
+  getMediaJobs as getCaptureMediaJobs,
   getSessions as getCaptureSessions,
 } from "./capture-api.js";
 import {
@@ -122,17 +131,34 @@ async function refreshAuthorizedBridgeOrigins() {
 }
 
 async function buildMemoryStatus() {
-  const [eventCount, sessionCount, lastEventAt, bootstrapState] = await Promise.all([
+  const [
+    eventCount,
+    sessionCount,
+    lastEventAt,
+    graphPacketCount,
+    contentUnitCount,
+    pendingMediaJobCount,
+    lastGraphPacketAt,
+    bootstrapState,
+  ] = await Promise.all([
     getEventCount(),
     getSessionCount(),
     getLatestEventTimestamp(),
+    getGraphPacketCount(),
+    getContentUnitCount(),
+    getPendingMediaJobCount(),
+    getLatestGraphPacketTimestamp(),
     getBootstrapImportState(),
   ]);
 
   const memorySignature = [
     eventCount,
     sessionCount,
+    graphPacketCount,
+    contentUnitCount,
+    pendingMediaJobCount,
     normalizeText(lastEventAt, 80),
+    normalizeText(lastGraphPacketAt, 80),
     normalizeText(bootstrapState?.status, 32),
     normalizeText(bootstrapState?.imported_at, 80),
     Number(bootstrapState?.imported_count || 0),
@@ -143,9 +169,13 @@ async function buildMemoryStatus() {
     eventCount,
     sessionCount,
     lastEventAt,
+    graphPacketCount,
+    contentUnitCount,
+    pendingMediaJobCount,
+    lastGraphPacketAt,
     modelReady: Boolean(embedWorkerReady),
     extensionVersion: EXTENSION_VERSION,
-    captureSchemaVersion: 2,
+    captureSchemaVersion: 3,
     memorySignature,
     sync: {
       mode: "memory_pulse_bridge",
@@ -952,6 +982,202 @@ async function captureActiveTabContext(tab) {
           }
           return found;
         };
+        const nearestSectionHeading = (node) => {
+          let current = node;
+          for (let depth = 0; current && depth < 5; depth += 1) {
+            const heading = current.querySelector?.("h1, h2, h3, [role='heading']");
+            const headingText = normalizeVisibleText(heading?.innerText || heading?.textContent || "");
+            if (headingText) {
+              return headingText.slice(0, 140);
+            }
+            current = current.parentElement;
+          }
+          const previousHeading = node?.previousElementSibling?.matches?.("h1, h2, h3, [role='heading']")
+            ? node.previousElementSibling
+            : null;
+          return normalizeVisibleText(previousHeading?.innerText || previousHeading?.textContent || "").slice(0, 140);
+        };
+        const pushContentUnit = (units, seen, unit) => {
+          const text = normalizeVisibleText(unit?.text || "");
+          if (!text || text.length < 8) {
+            return;
+          }
+          const key = `${unit.unit_type || unit.location || "text"}|${text.slice(0, 180).toLowerCase()}`;
+          if (seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          units.push({
+            ...unit,
+            text: text.slice(0, 1200),
+          });
+        };
+        const collectTranscriptUnits = (units, seen) => {
+          const transcriptSelectors = [
+            "ytd-transcript-segment-renderer",
+            "yt-formatted-string.segment-text",
+            "[class*='transcript' i] [class*='segment' i]",
+            "[class*='transcript' i] [class*='text' i]",
+            "[data-testid*='transcript' i]",
+            "[aria-label*='transcript' i]",
+            "[class*='caption' i]",
+            "[aria-label*='caption' i]",
+            "track[kind='subtitles']",
+            "track[kind='captions']"
+          ];
+          let index = 0;
+          for (const node of queryAllDeep(transcriptSelectors)) {
+            if (!(node instanceof Element) || isNoiseNode(node)) {
+              continue;
+            }
+            const text =
+              node.tagName === "TRACK"
+                ? normalizeVisibleText(`${node.getAttribute("label") || ""} ${node.getAttribute("srclang") || ""} ${node.getAttribute("src") || ""}`)
+                : normalizeVisibleText(node.innerText || node.textContent || "");
+            if (!text || text.length < 8 || text.length > 900) {
+              continue;
+            }
+            index += 1;
+            pushContentUnit(units, seen, {
+              unit_id: `transcript_${index}`,
+              media_type: "video",
+              unit_type: node.tagName === "TRACK" ? "caption_track" : "transcript_segment",
+              text,
+              location: "Transcript or captions",
+              section: nearestSectionHeading(node),
+              confidence: node.tagName === "TRACK" ? 0.54 : 0.82,
+            });
+            if (index >= 24) {
+              break;
+            }
+          }
+        };
+        const collectDomTextUnits = (units, seen) => {
+          const selectors = [
+            "main h1",
+            "main h2",
+            "main h3",
+            "article h1",
+            "article h2",
+            "article h3",
+            "main p",
+            "article p",
+            "[role='main'] p",
+            "[role='article'] p",
+            "blockquote",
+            "li"
+          ];
+          let index = 0;
+          for (const node of queryAllDeep(selectors)) {
+            if (!(node instanceof Element) || !isVisible(node) || isNoiseNode(node)) {
+              continue;
+            }
+            const text = normalizeVisibleText(node.innerText || node.textContent || "");
+            if (!text || text.length < 32 || text.length > 1600) {
+              continue;
+            }
+            index += 1;
+            const tag = node.tagName.toLowerCase();
+            pushContentUnit(units, seen, {
+              unit_id: `${tag}_${index}`,
+              media_type: "article",
+              unit_type: /^h[1-3]$/.test(tag) ? "heading" : tag === "li" ? "list_item" : "paragraph",
+              text,
+              location: /^h[1-3]$/.test(tag) ? "Heading" : "Page body",
+              section: nearestSectionHeading(node),
+              confidence: 0.72,
+            });
+            if (index >= 28) {
+              break;
+            }
+          }
+        };
+        const collectImageUnits = (units, seen) => {
+          let index = 0;
+          for (const image of queryAllDeep(["figure img", "main img", "article img", "[role='main'] img", "img"])) {
+            if (!(image instanceof HTMLImageElement) || !isVisible(image) || isNoiseNode(image)) {
+              continue;
+            }
+            const rect = image.getBoundingClientRect();
+            const width = Math.round(rect.width || image.naturalWidth || 0);
+            const height = Math.round(rect.height || image.naturalHeight || 0);
+            if (width < 140 || height < 80) {
+              continue;
+            }
+            const figure = image.closest("figure");
+            const caption = normalizeVisibleText(
+              figure?.querySelector?.("figcaption")?.innerText ||
+                image.closest("[aria-label]")?.getAttribute?.("aria-label") ||
+                ""
+            );
+            const alt = normalizeVisibleText(image.alt || image.title || image.getAttribute("aria-label") || "");
+            const filename = normalizeVisibleText((image.currentSrc || image.src || "").split("/").pop() || "");
+            const text = normalizeVisibleText([alt, caption, filename].filter(Boolean).join(". "));
+            const likelyText =
+              /infographic|chart|diagram|slide|screenshot|meme|text|quote|poster|caption/i.test(`${alt} ${caption} ${filename}`) ||
+              (width >= 420 && height >= 180 && text.length >= 16);
+            if (!text && !likelyText) {
+              continue;
+            }
+            index += 1;
+            pushContentUnit(units, seen, {
+              unit_id: `image_${index}`,
+              media_type: "image",
+              unit_type: text ? "image_context" : "image_ocr_candidate",
+              text: text || "Image likely contains text; OCR pending.",
+              location: "Image",
+              section: nearestSectionHeading(image),
+              confidence: text ? 0.58 : 0.34,
+              image: {
+                src: image.currentSrc || image.src || "",
+                alt,
+                caption,
+                width,
+                height,
+                text_likelihood: likelyText ? "likely_text" : "context_only",
+              },
+            });
+            if (index >= 12) {
+              break;
+            }
+          }
+        };
+        const collectMediaElements = () =>
+          queryAllDeep(["video", "audio"])
+            .filter(
+              (node) =>
+                node instanceof HTMLMediaElement &&
+                (node instanceof HTMLAudioElement || isVisible(node))
+            )
+            .slice(0, 6)
+            .map((node, index) => ({
+              id: `media_${index + 1}`,
+              media_type: node instanceof HTMLVideoElement ? "video" : "audio",
+              current_time: Number(node.currentTime || 0),
+              duration: Number.isFinite(Number(node.duration)) ? Number(node.duration) : null,
+              paused: Boolean(node.paused),
+              muted: Boolean(node.muted),
+              src: node.currentSrc || node.src || "",
+            }));
+        const collectContentUnits = () => {
+          const units = [];
+          const seen = new Set();
+          collectTranscriptUnits(units, seen);
+          collectDomTextUnits(units, seen);
+          collectImageUnits(units, seen);
+          const selectionText = normalizeVisibleText(window.getSelection?.()?.toString?.() || "");
+          if (selectionText) {
+            pushContentUnit(units, seen, {
+              unit_id: "selection_1",
+              media_type: "article",
+              unit_type: "selected_text",
+              text: selectionText,
+              location: "User selection",
+              confidence: 0.9,
+            });
+          }
+          return units.slice(0, 48);
+        };
         const scrapeNodeText = (node) => {
           if (!node || !isVisible(node) || isNoiseNode(node)) {
             return "";
@@ -1111,6 +1337,8 @@ async function captureActiveTabContext(tab) {
           now - (window.__memactLastCaptureReasonAt || 0) < autoCaptureReasonMaxAgeMs
             ? String(window.__memactLastCaptureReason || "")
             : "";
+        const contentUnits = collectContentUnits();
+        const mediaElements = collectMediaElements();
         return {
           pageTitle,
           description,
@@ -1126,6 +1354,8 @@ async function captureActiveTabContext(tab) {
           mediaActive,
           passiveViewingActive,
           captureReason,
+          contentUnits,
+          mediaElements,
         };
       }
     });
@@ -1150,6 +1380,40 @@ async function captureActiveTabContext(tab) {
       mediaActive: Boolean(result.mediaActive),
       passiveViewingActive: Boolean(result.passiveViewingActive),
       captureReason: normalizeText(result.captureReason, 48),
+      contentUnits: Array.isArray(result.contentUnits)
+        ? result.contentUnits.slice(0, 48).map((unit) => ({
+            unit_id: normalizeText(unit?.unit_id, 80),
+            media_type: normalizeText(unit?.media_type, 40),
+            unit_type: normalizeText(unit?.unit_type, 48),
+            text: normalizeText(unit?.text, 1200),
+            location: normalizeText(unit?.location, 80),
+            section: normalizeText(unit?.section, 140),
+            confidence: Number.isFinite(Number(unit?.confidence)) ? Number(unit.confidence) : 0.6,
+            start: Number.isFinite(Number(unit?.start)) ? Number(unit.start) : undefined,
+            end: Number.isFinite(Number(unit?.end)) ? Number(unit.end) : undefined,
+            image: unit?.image && typeof unit.image === "object"
+              ? {
+                  src: normalizeText(unit.image.src, 400),
+                  alt: normalizeText(unit.image.alt, 240),
+                  caption: normalizeText(unit.image.caption, 320),
+                  width: Number(unit.image.width || 0),
+                  height: Number(unit.image.height || 0),
+                  text_likelihood: normalizeText(unit.image.text_likelihood, 40),
+                }
+              : undefined,
+          })).filter((unit) => unit.text)
+        : [],
+      mediaElements: Array.isArray(result.mediaElements)
+        ? result.mediaElements.slice(0, 6).map((media) => ({
+            id: normalizeText(media?.id, 80),
+            media_type: normalizeText(media?.media_type, 32),
+            current_time: Number(media?.current_time || 0),
+            duration: Number.isFinite(Number(media?.duration)) ? Number(media.duration) : null,
+            paused: Boolean(media?.paused),
+            muted: Boolean(media?.muted),
+            src: normalizeText(media?.src, 400),
+          }))
+        : [],
     };
 
     if (
@@ -1166,6 +1430,19 @@ async function captureActiveTabContext(tab) {
             normalizeText(pdfCapture.snippet, SNIPPET_MAX_LEN) || normalizedResult.snippet;
           normalizedResult.fullText =
             normalizeRichText(pdfCapture.fullText, FULL_TEXT_MAX_LEN) || normalizedResult.fullText;
+          const pdfUnit = {
+            unit_id: "pdf_text_1",
+            media_type: "pdf",
+            unit_type: "pdf_text",
+            text: normalizeText(pdfCapture.snippet || pdfCapture.fullText, 1200),
+            location: "PDF text",
+            section: normalizeText(normalizedResult.pageTitle, 140),
+            confidence: 0.86,
+          };
+          normalizedResult.contentUnits = [
+            pdfUnit,
+            ...(Array.isArray(normalizedResult.contentUnits) ? normalizedResult.contentUnits : []),
+          ].slice(0, 48);
         }
       } catch {
         // Fall back to the DOM capture when PDF extraction is unavailable.
@@ -1343,6 +1620,14 @@ async function processAndStore(tabData) {
 
   const appendResult = await appendEvent(event);
   if (!appendResult?.skipped) {
+    const graphPacket = buildMultimediaGraphPacket({
+      tabData,
+      activeContext: active,
+      profile: retainedProfile,
+      capturePacket,
+      eventId: appendResult.id,
+    });
+    await appendGraphPacket(graphPacket).catch(() => null);
     invalidateEventSearchIndex();
     scheduleMemoryPulse(interactionType);
   }
@@ -2004,6 +2289,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           lastEventAt: "",
           memorySignature: "error",
           modelReady: Boolean(embedWorkerReady),
+          captureSchemaVersion: 3,
           error: String(error?.message || error || "status failed"),
           sync: {
             mode: "memory_pulse_bridge",
@@ -2138,6 +2424,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ok: false,
           error: String(error?.message || error || "capture activities failed"),
           activities: [],
+        })
+      );
+    return true;
+  }
+
+  if (message.type === "captureGetContentUnits") {
+    getCaptureContentUnits({ limit: message.limit })
+      .then((contentUnits) =>
+        sendResponse({
+          ok: true,
+          content_units: contentUnits,
+        })
+      )
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: String(error?.message || error || "capture content units failed"),
+          content_units: [],
+        })
+      );
+    return true;
+  }
+
+  if (message.type === "captureGetGraphPackets") {
+    getCaptureGraphPackets({ limit: message.limit })
+      .then((graphPackets) =>
+        sendResponse({
+          ok: true,
+          graph_packets: graphPackets,
+        })
+      )
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: String(error?.message || error || "capture graph packets failed"),
+          graph_packets: [],
+        })
+      );
+    return true;
+  }
+
+  if (message.type === "captureGetMediaJobs") {
+    getCaptureMediaJobs({ limit: message.limit })
+      .then((mediaJobs) =>
+        sendResponse({
+          ok: true,
+          media_jobs: mediaJobs,
+        })
+      )
+      .catch((error) =>
+        sendResponse({
+          ok: false,
+          error: String(error?.message || error || "capture media jobs failed"),
+          media_jobs: [],
         })
       );
     return true;

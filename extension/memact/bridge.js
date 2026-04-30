@@ -212,6 +212,36 @@ window.addEventListener("message", async (event) => {
         response,
         requestId
       });
+    } else if (type === "CAPTURE_GET_CONTENT_UNITS") {
+      const response = await chrome.runtime.sendMessage({
+        type: "captureGetContentUnits",
+        limit: payload?.limit || 1200
+      });
+      forwardToPage({
+        type: "CAPTURE_GET_CONTENT_UNITS_RESULT",
+        response,
+        requestId
+      });
+    } else if (type === "CAPTURE_GET_GRAPH_PACKETS") {
+      const response = await chrome.runtime.sendMessage({
+        type: "captureGetGraphPackets",
+        limit: payload?.limit || 400
+      });
+      forwardToPage({
+        type: "CAPTURE_GET_GRAPH_PACKETS_RESULT",
+        response,
+        requestId
+      });
+    } else if (type === "CAPTURE_GET_MEDIA_JOBS") {
+      const response = await chrome.runtime.sendMessage({
+        type: "captureGetMediaJobs",
+        limit: payload?.limit || 200
+      });
+      forwardToPage({
+        type: "CAPTURE_GET_MEDIA_JOBS_RESULT",
+        response,
+        requestId
+      });
     } else if (type === "CAPTURE_GET_SNAPSHOT") {
       const response = await chrome.runtime.sendMessage({
         type: "captureGetSnapshot",

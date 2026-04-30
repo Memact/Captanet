@@ -37,6 +37,7 @@ Capture can seed the local store on first use with a limited import of recent br
 - extracts page context and content from websites the user consumes
 - filters noisy or low-value events
 - stores local event history
+- stores multimedia content units and graph evidence packets
 - builds sessions and activity groups
 - exposes structured snapshots through the bridge
 - ranks searches with deterministic local embeddings
@@ -51,11 +52,40 @@ For supported pages, Capture stores the evidence needed for later citation:
 - dwell/visibility signals that show the page was actually consumed
 - scroll, typing, text selection, media playback, and content-mutation signals
 - snippets, cleaned page text, display text, and full extracted text where available
+- article paragraphs/headings, caption/transcript text when visible, PDF text, and image context
+- local graph packets with content units, extracted nodes, extracted edges, and evidence text
+- local pending jobs for OCR/ASR helper work when captions or readable image text are missing
 - structured context profiles with topics, entities, page purpose, and capture intent
 - capture packets with important blocks, points, search terms, and source metadata
 - nested event trails inside activities so later answers can cite the original source
 
 Capture should collect enough useful context for citation while still filtering obvious noise, empty pages, auth screens, and low-value browser chrome.
+
+## Multimedia Graph Capture
+
+Capture now writes a local graph packet beside each useful event:
+
+```text
+webpage / video / audio / image / PDF
+-> content units
+-> nodes and edges
+-> graph evidence packet
+-> local IndexedDB
+```
+
+This is automatic. It does not download snapshots, show capture popups, store raw audio/video, or send captured media to the cloud.
+
+Current automatic coverage:
+
+- webpages and articles: headings, paragraphs, quotes, list items, selections, metadata
+- video pages: visible captions/transcript segments when the page exposes them, plus local ASR job markers when transcript text is missing
+- audio pages: media metadata plus local ASR job markers when transcript text is missing
+- images: alt text, captions, filenames, surrounding section context, and local OCR job markers for likely text-heavy images
+- PDFs: extracted text when PDF.js can read the document
+
+Heavy transcription and OCR are intentionally represented as local jobs first. A future local helper can process those jobs during idle time without changing the public contract or uploading raw media.
+
+Silent raw tab-audio capture is not shipped in this layer. Chrome's tab capture path requires extension invocation for the active tab, and storing raw media would weaken the privacy boundary. Capture instead prefers page captions/transcripts first, then leaves local ASR job markers for a helper that can run only when the user has enabled that capability.
 
 ## What Capture Does Not Do
 
@@ -81,6 +111,9 @@ Public functions:
 - `getEvents({ limit })`
 - `getSessions({ limit })`
 - `getActivities({ limit })`
+- `getContentUnits({ limit })`
+- `getGraphPackets({ limit })`
+- `getMediaJobs({ limit })`
 - `getCaptureSnapshot({ limit })`
 
 Runtime bridge messages also expose:
@@ -124,6 +157,9 @@ Capture snapshots contain:
 - `events`
 - `sessions`
 - `activities`
+- `content_units`
+- `graph_packets`
+- `pending_media_jobs`
 
 Capture stores activity locally inside the extension. It does not download captured snapshots to the user's Downloads folder.
 
@@ -205,6 +241,7 @@ To inspect a snapshot from an authorized page:
 ```js
 const snapshot = await window.capture.getSnapshot({ limit: 50 });
 console.log(snapshot.activities[0]);
+console.log(snapshot.graph_packets[0]);
 ```
 
 ## Downstream Flow

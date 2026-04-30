@@ -137,6 +137,18 @@
       const response = await expectCaptureResponse("CAPTURE_GET_ACTIVITIES", options);
       return Array.isArray(response.activities) ? response.activities : [];
     },
+    async getContentUnits(options = {}) {
+      const response = await expectCaptureResponse("CAPTURE_GET_CONTENT_UNITS", options);
+      return Array.isArray(response.content_units) ? response.content_units : [];
+    },
+    async getGraphPackets(options = {}) {
+      const response = await expectCaptureResponse("CAPTURE_GET_GRAPH_PACKETS", options);
+      return Array.isArray(response.graph_packets) ? response.graph_packets : [];
+    },
+    async getMediaJobs(options = {}) {
+      const response = await expectCaptureResponse("CAPTURE_GET_MEDIA_JOBS", options);
+      return Array.isArray(response.media_jobs) ? response.media_jobs : [];
+    },
     async getSnapshot(options = {}) {
       const response = await expectCaptureResponse("CAPTURE_GET_SNAPSHOT", options);
       return response.snapshot || null;

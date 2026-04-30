@@ -1,5 +1,5 @@
 const DB_NAME = "memact-browser-memory";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 
@@ -58,6 +58,38 @@ export async function initDB() {
 
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings", { keyPath: "key" });
+      }
+
+      if (!db.objectStoreNames.contains("content_units")) {
+        const contentUnits = db.createObjectStore("content_units", {
+          keyPath: "id"
+        });
+        contentUnits.createIndex("packet_id", "packet_id", { unique: false });
+        contentUnits.createIndex("event_id", "event_id", { unique: false });
+        contentUnits.createIndex("captured_at", "captured_at", { unique: false });
+        contentUnits.createIndex("media_type", "media_type", { unique: false });
+        contentUnits.createIndex("url", "url", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains("graph_packets")) {
+        const graphPackets = db.createObjectStore("graph_packets", {
+          keyPath: "packet_id"
+        });
+        graphPackets.createIndex("event_id", "event_id", { unique: false });
+        graphPackets.createIndex("captured_at", "captured_at", { unique: false });
+        graphPackets.createIndex("media_type", "media_type", { unique: false });
+        graphPackets.createIndex("url", "url", { unique: false });
+      }
+
+      if (!db.objectStoreNames.contains("media_jobs")) {
+        const mediaJobs = db.createObjectStore("media_jobs", {
+          keyPath: "id"
+        });
+        mediaJobs.createIndex("status", "status", { unique: false });
+        mediaJobs.createIndex("job_type", "job_type", { unique: false });
+        mediaJobs.createIndex("created_at", "created_at", { unique: false });
+        mediaJobs.createIndex("packet_id", "packet_id", { unique: false });
+        mediaJobs.createIndex("event_id", "event_id", { unique: false });
       }
     });
 
@@ -335,6 +367,119 @@ export async function appendEvent(eventData) {
   return { skipped: false, id };
 }
 
+function normalizeJson(value, fallback = "[]") {
+  if (typeof value === "string") {
+    return value || fallback;
+  }
+  try {
+    return JSON.stringify(value ?? JSON.parse(fallback));
+  } catch {
+    return fallback;
+  }
+}
+
+function cloneJson(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? fallback));
+  } catch {
+    return fallback;
+  }
+}
+
+export async function appendGraphPacket(packet) {
+  if (!packet?.packet_id || !Array.isArray(packet.content_units) || !packet.content_units.length) {
+    return { skipped: true, reason: "empty_graph_packet" };
+  }
+
+  const db = await getDb();
+  const tx = db.transaction(["graph_packets", "content_units", "media_jobs"], "readwrite");
+  const graphStore = tx.objectStore("graph_packets");
+  const unitStore = tx.objectStore("content_units");
+  const jobStore = tx.objectStore("media_jobs");
+  const packetId = normalizeString(packet.packet_id);
+  const eventId = Number(packet.event_id || 0) || null;
+  const capturedAt = normalizeString(packet.captured_at) || new Date().toISOString();
+  const url = normalizeString(packet.url);
+  const title = normalizeString(packet.title);
+  const mediaType = normalizeString(packet.media_type) || "webpage";
+  const contentUnits = cloneJson(packet.content_units, []);
+  const nodes = cloneJson(packet.nodes, []);
+  const edges = cloneJson(packet.edges, []);
+  const processingJobs = cloneJson(packet.processing_jobs, []);
+
+  await openRequest(graphStore.put({
+    packet_id: packetId,
+    packet_type: normalizeString(packet.packet_type) || "multimedia_graph_capture",
+    schema_version: Number(packet.schema_version || 1),
+    source: normalizeString(packet.source) || "browser_extension",
+    event_id: eventId,
+    captured_at: capturedAt,
+    url,
+    domain: normalizeString(packet.domain) || deriveHostname(url),
+    title,
+    media_type: mediaType,
+    content_unit_count: contentUnits.length,
+    node_count: nodes.length,
+    edge_count: edges.length,
+    pending_job_count: processingJobs.length,
+    content_units_json: normalizeJson(contentUnits),
+    nodes_json: normalizeJson(nodes),
+    edges_json: normalizeJson(edges),
+    processing_jobs_json: normalizeJson(processingJobs),
+    packet_json: normalizeJson(packet, "{}"),
+  }));
+
+  for (const unit of contentUnits) {
+    const unitId = normalizeString(unit.unit_id);
+    if (!unitId || !normalizeString(unit.text)) {
+      continue;
+    }
+    await openRequest(unitStore.put({
+      id: `${packetId}:${unitId}`,
+      packet_id: packetId,
+      event_id: eventId,
+      captured_at: capturedAt,
+      url,
+      title,
+      media_type: normalizeString(unit.media_type) || mediaType,
+      unit_type: normalizeString(unit.unit_type) || "text",
+      unit_id: unitId,
+      section: normalizeString(unit.section),
+      location: normalizeString(unit.location),
+      start: Number.isFinite(Number(unit.start)) ? Number(unit.start) : null,
+      end: Number.isFinite(Number(unit.end)) ? Number(unit.end) : null,
+      text: normalizeString(unit.text),
+      unit_json: normalizeJson(unit, "{}"),
+    }));
+  }
+
+  for (const job of processingJobs) {
+    const id = normalizeString(job.id);
+    if (!id) {
+      continue;
+    }
+    await openRequest(jobStore.put({
+      ...job,
+      id,
+      packet_id: normalizeString(job.packet_id) || packetId,
+      event_id: Number(job.event_id || eventId || 0) || null,
+      status: normalizeString(job.status) || "pending",
+      job_type: normalizeString(job.job_type) || "media_processing",
+      created_at: normalizeString(job.created_at) || capturedAt,
+    }));
+  }
+
+  await txDone(tx);
+  return {
+    skipped: false,
+    packetId,
+    contentUnitCount: contentUnits.length,
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    pendingJobCount: processingJobs.length,
+  };
+}
+
 export async function getRecentEvents(limit = 400) {
   const db = await getDb();
   const tx = db.transaction("events", "readonly");
@@ -394,6 +539,162 @@ export async function getEventCount() {
   return count || 0;
 }
 
+function parseStoredJson(value, fallback) {
+  try {
+    return JSON.parse(value || "");
+  } catch {
+    return fallback;
+  }
+}
+
+export async function getRecentGraphPackets(limit = 400) {
+  const db = await getDb();
+  const tx = db.transaction("graph_packets", "readonly");
+  const store = tx.objectStore("graph_packets");
+  const index = store.index("captured_at");
+  const results = [];
+
+  await new Promise((resolve, reject) => {
+    const request = index.openCursor(null, "prev");
+    request.addEventListener("success", () => {
+      const cursor = request.result;
+      if (!cursor || results.length >= limit) {
+        resolve();
+        return;
+      }
+      const record = cursor.value;
+      results.push({
+        packet_id: record.packet_id,
+        packet_type: record.packet_type,
+        schema_version: record.schema_version,
+        source: record.source,
+        event_id: record.event_id,
+        captured_at: record.captured_at,
+        url: record.url,
+        domain: record.domain,
+        title: record.title,
+        media_type: record.media_type,
+        content_units: parseStoredJson(record.content_units_json, []),
+        nodes: parseStoredJson(record.nodes_json, []),
+        edges: parseStoredJson(record.edges_json, []),
+        processing_jobs: parseStoredJson(record.processing_jobs_json, []),
+        stats: {
+          content_unit_count: Number(record.content_unit_count || 0),
+          node_count: Number(record.node_count || 0),
+          edge_count: Number(record.edge_count || 0),
+          pending_job_count: Number(record.pending_job_count || 0),
+        },
+      });
+      cursor.continue();
+    });
+    request.addEventListener("error", () => reject(request.error));
+  });
+
+  await txDone(tx).catch(() => {});
+  return results;
+}
+
+export async function getRecentContentUnits(limit = 1200) {
+  const db = await getDb();
+  const tx = db.transaction("content_units", "readonly");
+  const store = tx.objectStore("content_units");
+  const index = store.index("captured_at");
+  const results = [];
+
+  await new Promise((resolve, reject) => {
+    const request = index.openCursor(null, "prev");
+    request.addEventListener("success", () => {
+      const cursor = request.result;
+      if (!cursor || results.length >= limit) {
+        resolve();
+        return;
+      }
+      const record = cursor.value;
+      results.push({
+        id: record.id,
+        packet_id: record.packet_id,
+        event_id: record.event_id,
+        captured_at: record.captured_at,
+        url: record.url,
+        title: record.title,
+        media_type: record.media_type,
+        unit_type: record.unit_type,
+        unit_id: record.unit_id,
+        section: record.section,
+        location: record.location,
+        start: record.start,
+        end: record.end,
+        text: record.text,
+        unit: parseStoredJson(record.unit_json, null),
+      });
+      cursor.continue();
+    });
+    request.addEventListener("error", () => reject(request.error));
+  });
+
+  await txDone(tx).catch(() => {});
+  return results;
+}
+
+export async function getPendingMediaJobs(limit = 200) {
+  const db = await getDb();
+  const tx = db.transaction("media_jobs", "readonly");
+  const store = tx.objectStore("media_jobs");
+  const index = store.index("status");
+  const results = [];
+
+  await new Promise((resolve, reject) => {
+    const request = index.openCursor(IDBKeyRange.only("pending"), "next");
+    request.addEventListener("success", () => {
+      const cursor = request.result;
+      if (!cursor || results.length >= limit) {
+        resolve();
+        return;
+      }
+      results.push(cursor.value);
+      cursor.continue();
+    });
+    request.addEventListener("error", () => reject(request.error));
+  });
+
+  await txDone(tx).catch(() => {});
+  return results;
+}
+
+export async function getGraphPacketCount() {
+  const db = await getDb();
+  const tx = db.transaction("graph_packets", "readonly");
+  const count = await openRequest(tx.objectStore("graph_packets").count());
+  await txDone(tx).catch(() => {});
+  return count || 0;
+}
+
+export async function getContentUnitCount() {
+  const db = await getDb();
+  const tx = db.transaction("content_units", "readonly");
+  const count = await openRequest(tx.objectStore("content_units").count());
+  await txDone(tx).catch(() => {});
+  return count || 0;
+}
+
+export async function getPendingMediaJobCount() {
+  const db = await getDb();
+  const tx = db.transaction("media_jobs", "readonly");
+  const index = tx.objectStore("media_jobs").index("status");
+  const count = await openRequest(index.count(IDBKeyRange.only("pending")));
+  await txDone(tx).catch(() => {});
+  return count || 0;
+}
+
+export async function getLatestGraphPacketTimestamp() {
+  const db = await getDb();
+  const tx = db.transaction("graph_packets", "readonly");
+  const index = tx.objectStore("graph_packets").index("captured_at");
+  const cursor = await openRequest(index.openCursor(null, "prev"));
+  await txDone(tx).catch(() => {});
+  return cursor?.value?.captured_at || "";
+}
+
 export async function getLatestEventTimestamp() {
   const db = await getDb();
   const tx = db.transaction("events", "readonly");
@@ -433,18 +734,22 @@ export async function searchEventsByEmbedding(queryEmbedding, limit = 50) {
 
 export async function clearAllData() {
   const db = await getDb();
-  const tx = db.transaction(["events", "sessions", "settings"], "readwrite");
+  const tx = db.transaction(["events", "sessions", "settings", "content_units", "graph_packets", "media_jobs"], "readwrite");
   tx.objectStore("events").clear();
   tx.objectStore("sessions").clear();
   tx.objectStore("settings").clear();
+  tx.objectStore("content_units").clear();
+  tx.objectStore("graph_packets").clear();
+  tx.objectStore("media_jobs").clear();
   await txDone(tx);
 }
 
 export async function clearBootstrapImportedEvents() {
   const db = await getDb();
-  const tx = db.transaction(["events", "sessions", "settings"], "readwrite");
+  const tx = db.transaction(["events", "sessions", "settings", "content_units", "graph_packets", "media_jobs"], "readwrite");
   const eventStore = tx.objectStore("events");
   const sourceIndex = eventStore.index("source");
+  const deletedEventIds = new Set();
   let deletedCount = 0;
 
   await new Promise((resolve, reject) => {
@@ -455,6 +760,7 @@ export async function clearBootstrapImportedEvents() {
         resolve();
         return;
       }
+      deletedEventIds.add(Number(cursor.value?.id || 0));
       cursor.delete();
       deletedCount += 1;
       cursor.continue();
@@ -466,20 +772,60 @@ export async function clearBootstrapImportedEvents() {
   // cached session table prevents old imported sessions from staying visible in stats.
   tx.objectStore("sessions").clear();
   tx.objectStore("settings").delete("last_capture_by_url");
+
+  for (const storeName of ["content_units", "graph_packets", "media_jobs"]) {
+    const store = tx.objectStore(storeName);
+    const index = store.index("event_id");
+    for (const eventId of deletedEventIds) {
+      if (!eventId) {
+        continue;
+      }
+      await new Promise((resolve, reject) => {
+        const request = index.openCursor(IDBKeyRange.only(eventId));
+        request.addEventListener("success", () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve();
+            return;
+          }
+          cursor.delete();
+          cursor.continue();
+        });
+        request.addEventListener("error", () => reject(request.error));
+      });
+    }
+  }
+
   await txDone(tx);
   return { deletedCount };
 }
 
 export async function getStats() {
-  const [eventCount, sessionCount, lastEventAt] = await Promise.all([
+  const [
+    eventCount,
+    sessionCount,
+    lastEventAt,
+    graphPacketCount,
+    contentUnitCount,
+    pendingMediaJobCount,
+    lastGraphPacketAt,
+  ] = await Promise.all([
     getEventCount(),
     getSessionCount(),
     getLatestEventTimestamp(),
+    getGraphPacketCount(),
+    getContentUnitCount(),
+    getPendingMediaJobCount(),
+    getLatestGraphPacketTimestamp(),
   ]);
   const recentEvents = await getRecentEvents(1).catch(() => []);
   return {
     eventCount,
     sessionCount,
-    lastEventAt: lastEventAt || recentEvents[0]?.occurred_at || null
+    graphPacketCount,
+    contentUnitCount,
+    pendingMediaJobCount,
+    lastEventAt: lastEventAt || recentEvents[0]?.occurred_at || null,
+    lastGraphPacketAt: lastGraphPacketAt || null
   };
 }
