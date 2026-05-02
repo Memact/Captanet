@@ -1,6 +1,9 @@
-const MODEL_NAME = "memact-local-hash-embedding-v1";
+const HASH_MODEL_NAME = "memact-local-hash-embedding-v1";
+const SEMANTIC_MODEL_NAME = "Xenova/all-MiniLM-L6-v2";
 
 let modelReady = true;
+let providerName = "hash_fallback";
+let semanticPipelinePromise = null;
 
 function normalizeVector(values) {
   const vector = Array.from(values || []).map((value) => Number(value) || 0);
@@ -39,7 +42,71 @@ async function hashEmbedding(text, dim = 384) {
   return normalizeVector(vector);
 }
 
+async function loadSemanticPipeline() {
+  if (semanticPipelinePromise) {
+    return semanticPipelinePromise;
+  }
+
+  semanticPipelinePromise = (async () => {
+    try {
+      const module = await import("./vendor/transformers.min.js");
+      const pipeline = module.pipeline || module.default?.pipeline;
+      if (typeof pipeline !== "function") {
+        return null;
+      }
+      providerName = "loading_sentence_transformer";
+      self.postMessage({
+        type: "loading_progress",
+        provider: providerName,
+        model: SEMANTIC_MODEL_NAME
+      });
+      const extractor = await pipeline("feature-extraction", SEMANTIC_MODEL_NAME, {
+        quantized: true,
+      });
+      providerName = "sentence_transformer";
+      return extractor;
+    } catch {
+      providerName = "hash_fallback";
+      return null;
+    }
+  })();
+
+  return semanticPipelinePromise;
+}
+
+function outputToVector(output) {
+  if (!output) {
+    return [];
+  }
+  if (Array.isArray(output)) {
+    return output.flat(Infinity).map((value) => Number(value) || 0);
+  }
+  if (Array.isArray(output.data) || ArrayBuffer.isView(output.data)) {
+    return Array.from(output.data).map((value) => Number(value) || 0);
+  }
+  if (typeof output.tolist === "function") {
+    return output.tolist().flat(Infinity).map((value) => Number(value) || 0);
+  }
+  return [];
+}
+
+async function semanticEmbedding(text) {
+  const extractor = await loadSemanticPipeline();
+  if (!extractor) {
+    return [];
+  }
+  const output = await extractor(String(text || ""), {
+    pooling: "mean",
+    normalize: true,
+  });
+  return normalizeVector(outputToVector(output));
+}
+
 async function embedText(text) {
+  const semantic = await semanticEmbedding(text);
+  if (semantic.length) {
+    return semantic;
+  }
   return hashEmbedding(text);
 }
 
@@ -53,7 +120,9 @@ self.addEventListener("message", async (event) => {
     self.postMessage({
       type: "status_result",
       ready: Boolean(modelReady),
-      model: MODEL_NAME
+      provider: providerName,
+      model: providerName === "sentence_transformer" ? SEMANTIC_MODEL_NAME : HASH_MODEL_NAME,
+      fallback_model: HASH_MODEL_NAME
     });
     return;
   }
