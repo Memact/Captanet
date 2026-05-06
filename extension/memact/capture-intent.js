@@ -1,3 +1,5 @@
+import { classifyCapturePrivacy } from "./privacy-boundary.js";
+
 const SEARCH_ENGINE_DOMAINS = new Set([
   "google.com",
   "bing.com",
@@ -181,6 +183,24 @@ function reasonForIntent(purpose, captureMode, profile) {
 }
 
 export function inferCaptureIntent(profile) {
+  const privacy = classifyCapturePrivacy(profile);
+  if (privacy.action === "block") {
+    return {
+      version: 1,
+      pagePurpose: "sensitive",
+      captureMode: "skip",
+      targetRegions: [],
+      shouldCapture: false,
+      shouldSkip: true,
+      shouldCaptureFullText: false,
+      shouldPreferStructured: false,
+      shouldKeepMetadataOnly: false,
+      query: "",
+      privacy,
+      reason: privacy.reason,
+    };
+  }
+
   const purpose = detectPurpose(profile);
   const captureMode = captureModeForPurpose(purpose, profile);
   const query = queryFromUrl(profile?.url || "");
@@ -198,6 +218,7 @@ export function inferCaptureIntent(profile) {
     shouldPreferStructured: captureMode === "structured",
     shouldKeepMetadataOnly: captureMode === "metadata",
     query,
+    privacy,
     reason: reasonForIntent(purpose, captureMode, profile),
   };
 }

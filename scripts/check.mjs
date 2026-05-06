@@ -15,11 +15,18 @@ const requiredPaths = [
   'extension/memact/embed-worker.js',
   'extension/memact/multimedia-graph.js',
   'extension/memact/page-api.js',
+  'extension/memact/privacy-boundary.js',
   'extension/memact/Readability.js',
   'extension/memact/icons',
   'extension/memact/vendor',
   'scripts/package-extension.mjs',
   'scripts/sync-vendors.mjs',
+  'native-helper/src/helper.mjs',
+  'native-helper/src/packets.mjs',
+  'native-helper/src/text.mjs',
+  'native-helper/src/windows-capture.mjs',
+  'native-helper/scripts/windows-observe.ps1',
+  'native-helper/scripts/windows-screenshot.ps1',
 ]
 
 const syntaxCheckTargets = [
@@ -30,8 +37,13 @@ const syntaxCheckTargets = [
   'extension/memact/embed-worker.js',
   'extension/memact/multimedia-graph.js',
   'extension/memact/page-api.js',
+  'extension/memact/privacy-boundary.js',
   'scripts/package-extension.mjs',
   'scripts/sync-vendors.mjs',
+  'native-helper/src/helper.mjs',
+  'native-helper/src/packets.mjs',
+  'native-helper/src/text.mjs',
+  'native-helper/src/windows-capture.mjs',
 ]
 
 async function ensurePathExists(relativePath) {

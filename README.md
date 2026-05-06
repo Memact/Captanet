@@ -2,7 +2,7 @@
 
 Version: `v0.0`
 
-Capture is the browser evidence layer.
+Capture is the evidence layer.
 
 It owns one job:
 
@@ -15,6 +15,7 @@ Capture does not explain thoughts, form schemas, or generate answers. It records
 ## What This Repo Owns
 
 - Chrome/Chromium extension runtime.
+- Optional local device helper for active app, window title, and visible UI text.
 - Automatic page, tab, navigation, and interaction capture.
 - Content extraction from webpages, PDFs, visible captions/transcripts, selections, and image context.
 - Noise filtering for empty pages, auth screens, browser chrome, and low-value activity.
@@ -44,7 +45,7 @@ Capture stores several levels of evidence:
 - `media_jobs`
   Local OCR/ASR job descriptors. These are not raw media files.
 
-## Multimedia Boundary
+## Device And Multimedia Boundary
 
 Capture is automatic and local-first.
 
@@ -58,6 +59,36 @@ It does not:
 For video/audio, Capture first looks for captions, transcript text, and page context. If transcript text is missing, it records a local ASR job descriptor for a future helper.
 
 For images, Capture stores alt text, captions, filenames, nearby section context, and OCR job descriptors for likely text-heavy images.
+
+For device context, the optional Capture Helper samples the active app, active window title, and visible UI text available through Windows UI Automation. Optional OCR is off by default and uses temporary screenshots only during processing.
+
+## Privacy Boundary
+
+Capture must reject sensitive pages before they become events, content units,
+nodes, or edges.
+
+Sensitive categories include:
+
+- banking and payments
+- passwords, login, reset, OTP, and authentication pages
+- private inboxes, direct messages, and compose screens
+- medical or patient portals
+- checkout, billing, and account pages
+
+Those pages are skipped instead of being turned into graph evidence.
+
+## Access Boundary
+
+Apps do not receive a user's raw Memact memory graph by default.
+
+Access creates API keys and consent scopes. Capture can return scoped snapshots:
+
+- capture/schema write scopes let an app ask Memact to capture and form memory
+- `memory:read_summary` allows compact summaries
+- `memory:read_evidence` allows evidence snippets and source cards
+- `memory:read_graph` is required before nodes and edges are exposed
+
+Without graph-read scope, graph packets return counts and metadata only.
 
 ## Public API
 
@@ -97,6 +128,18 @@ Validate:
 npm run check
 ```
 
+Run the local device helper:
+
+```powershell
+npm run device-helper
+```
+
+Run one helper sample:
+
+```powershell
+npm run device-helper:once
+```
+
 Build extension zip:
 
 ```powershell
@@ -126,12 +169,16 @@ console.log(snapshot.events.length);
 console.log(snapshot.graph_packets[0]);
 ```
 
+If the local helper is running, `window.capture.getSnapshot()` will also include `device_graph_capture` packets after the extension imports them.
+
 ## Security Notes
 
 - The bridge is restricted to authorized Memact origins.
 - Memory pulses contain counts and signatures, not captured page content.
 - Broad host access is used for observation only.
 - Raw media is not stored by the extension.
+- The local helper listens on `127.0.0.1` and does not expose raw screenshots/audio.
+- The helper does not enable browser CORS, so random webpages cannot read the local packet feed.
 
 ## License
 

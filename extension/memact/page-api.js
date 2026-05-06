@@ -162,7 +162,7 @@
       return response.bootstrap || null;
     },
     async exportSnapshot(options = {}) {
-      const snapshot = await this.getSnapshot({ limit: options?.limit || 3000 });
+      const snapshot = await this.getSnapshot(options);
       if (!snapshot) {
         throw new Error("Capture did not return a snapshot.");
       }

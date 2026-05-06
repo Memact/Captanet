@@ -25,6 +25,9 @@
     "sync-vendors": "node scripts/sync-vendors.mjs",
     "check": "node scripts/check.mjs",
     "build": "node scripts/package-extension.mjs",
+    "device-helper": "node native-helper/src/helper.mjs",
+    "device-helper:once": "node native-helper/src/helper.mjs --once --json",
+    "device-helper:check": "npm --prefix native-helper run check",
     "package-extension": "node scripts/package-extension.mjs"
   },
   "dependencies": {

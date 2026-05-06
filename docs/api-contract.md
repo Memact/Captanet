@@ -4,6 +4,10 @@ Downstream Memact engines must consume Capture only through the public data cont
 
 Capture is the source-of-truth evidence boundary for Memact's citation and answer engine. It should expose enough structured website-consumption data for downstream systems to cite what the user actually consumed, without forcing those systems to read Capture internals.
 
+Capture is not an app data broker. Apps can use Memact to capture allowed
+activity and form schemas, but Access must decide what an app is allowed to
+ask for and what output it may read.
+
 ## Public Functions
 
 Located in `extension/memact/capture-api.js`.
@@ -21,13 +25,26 @@ Located in `extension/memact/capture-api.js`.
   Returns ordered content units captured from webpages, transcripts/captions, PDFs, and image context.
 
 - `getGraphPackets({ limit })`
-  Returns multimedia graph packets with content units, nodes, edges, and pending local media jobs.
+  Returns multimedia and device graph packets with content units, nodes, edges, and pending local media jobs.
 
 - `getMediaJobs({ limit })`
   Returns pending local OCR/ASR jobs. These are job descriptors only, not raw media.
 
 - `getCaptureSnapshot({ limit })`
   Returns a full snapshot with `events`, `sessions`, `activities`, `content_units`, `graph_packets`, and `pending_media_jobs`.
+
+Scoped reads:
+
+```js
+await window.capture.getSnapshot({
+  limit: 3000,
+  scopes: ["capture:webpage", "schema:write", "graph:write"]
+});
+```
+
+When `scopes` are present, Capture redacts output that is not allowed by those
+scopes. In particular, nodes and edges require `memory:read_graph`, while
+evidence snippets require `memory:read_evidence`.
 
 ## Snapshot Shape
 
@@ -104,6 +121,55 @@ Located in `extension/memact/capture-api.js`.
 Graph packets are deterministic local evidence envelopes. They do not claim final origin or influence by themselves. Schema, Memory, Origin, and Influence decide what survives and how it should be used later.
 
 Raw audio/video blobs are not part of this contract. When transcript text is missing, Capture exposes a pending local media job so a future local helper can transcribe without forcing Capture clients to handle media files.
+
+## Sensitive Capture Exclusions
+
+Capture must skip sensitive activity before graph formation.
+
+Blocked categories include:
+
+- banking, payment, checkout, and billing pages
+- password, login, reset, OTP, and authentication pages
+- private inboxes, direct messages, and compose pages
+- medical, hospital, patient portal, and health-record pages
+- account/admin pages where private user state is likely visible
+
+These exclusions happen before content units, nodes, or edges are retained.
+
+## Device Graph Packet Shape
+
+The optional local Capture Helper exposes device-level packets for activity the browser extension cannot reliably see.
+
+```json
+{
+  "packet_id": "dgc_12_code_abc123",
+  "packet_type": "device_graph_capture",
+  "schema_version": 1,
+  "source": "device_helper",
+  "url": "memact-device://window/code",
+  "domain": "device",
+  "title": "README.md - Visual Studio Code",
+  "media_type": "device_window",
+  "captured_at": "2026-04-03T12:00:00.000Z",
+  "content_units": [
+    {
+      "unit_id": "window_title",
+      "media_type": "device_window",
+      "unit_type": "active_window_title",
+      "text": "README.md - Visual Studio Code",
+      "location": "Active window",
+      "confidence": 0.82
+    }
+  ],
+  "nodes": [],
+  "edges": [],
+  "processing_jobs": []
+}
+```
+
+Device packets follow the same rule as browser packets: they are evidence, not conclusions. They should help downstream systems notice what was visible or active, especially when browser DOM access misses ads, desktop apps, documents, terminals, or local tools.
+
+The helper does not retain raw screenshots or audio. Optional OCR uses temporary screenshots only during processing, then deletes them.
 
 ## Activity Shape
 
@@ -209,6 +275,21 @@ Responses:
 Clients should compare `memorySignature` before asking for `CAPTURE_GET_SNAPSHOT`.
 If the signature did not change, the previous knowledge envelope is still current.
 
+`MEMACT_STATUS` also includes optional helper state:
+
+```json
+{
+  "device_helper": {
+    "connected": true,
+    "latest_seq": 12,
+    "last_seen_at": "2026-04-03T12:00:00.000Z",
+    "platform": "win32",
+    "ocr_enabled": false,
+    "raw_media_retained": false
+  }
+}
+```
+
 ## Browser Runtime Export
 
 When an authorized host is running with the extension bridge enabled, the page exposes a small runtime API:
@@ -222,6 +303,7 @@ That runtime is provided by `extension/memact/page-api.js`, which is injected in
 - `window.capture.getGraphPackets({ limit })`
 - `window.capture.getMediaJobs({ limit })`
 - `window.capture.getSnapshot({ limit })`
+- `window.capture.getSnapshot({ limit, scopes })`
 - `window.capture.exportSnapshot({ limit })`
 
 `exportSnapshot()` is now an alias for `getSnapshot()` for developer compatibility. It does not write files.

@@ -1,0 +1,19 @@
+{
+  "name": "memact-capture-helper",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Local device evidence helper for Memact Capture.",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "type": "module",
+  "bin": {
+    "memact-capture-helper": "./src/helper.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node ./src/helper.mjs",
+    "once": "node ./src/helper.mjs --once --json",
+    "check": "node --check ./src/helper.mjs && node --check ./src/packets.mjs && node --check ./src/text.mjs && node --check ./src/windows-capture.mjs"
+  }
+}

@@ -215,7 +215,8 @@ window.addEventListener("message", async (event) => {
     } else if (type === "CAPTURE_GET_CONTENT_UNITS") {
       const response = await chrome.runtime.sendMessage({
         type: "captureGetContentUnits",
-        limit: payload?.limit || 1200
+        limit: payload?.limit || 1200,
+        scopes: payload?.scopes || null
       });
       forwardToPage({
         type: "CAPTURE_GET_CONTENT_UNITS_RESULT",
@@ -225,7 +226,8 @@ window.addEventListener("message", async (event) => {
     } else if (type === "CAPTURE_GET_GRAPH_PACKETS") {
       const response = await chrome.runtime.sendMessage({
         type: "captureGetGraphPackets",
-        limit: payload?.limit || 400
+        limit: payload?.limit || 400,
+        scopes: payload?.scopes || null
       });
       forwardToPage({
         type: "CAPTURE_GET_GRAPH_PACKETS_RESULT",
@@ -235,7 +237,8 @@ window.addEventListener("message", async (event) => {
     } else if (type === "CAPTURE_GET_MEDIA_JOBS") {
       const response = await chrome.runtime.sendMessage({
         type: "captureGetMediaJobs",
-        limit: payload?.limit || 200
+        limit: payload?.limit || 200,
+        scopes: payload?.scopes || null
       });
       forwardToPage({
         type: "CAPTURE_GET_MEDIA_JOBS_RESULT",
@@ -245,7 +248,9 @@ window.addEventListener("message", async (event) => {
     } else if (type === "CAPTURE_GET_SNAPSHOT") {
       const response = await chrome.runtime.sendMessage({
         type: "captureGetSnapshot",
-        limit: payload?.limit || 3000
+        limit: payload?.limit || 3000,
+        scopes: payload?.scopes || null,
+        trusted: payload?.trusted === true
       });
       forwardToPage({
         type: "CAPTURE_GET_SNAPSHOT_RESULT",

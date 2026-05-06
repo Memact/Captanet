@@ -56,12 +56,20 @@ const AUTO_CAPTURE_HEARTBEAT_MS = 90000;
 const AUTO_CAPTURE_MUTATION_DELAY_MS = 2200;
 const AUTO_CAPTURE_REASON_MAX_AGE_MS = 15000;
 const CAPTURE_AUTHORIZED_ORIGINS_KEY = "capture_authorized_origins";
+const DEVICE_HELPER_BASE_URL = "http://127.0.0.1:38489";
+const DEVICE_HELPER_LAST_SEQ_KEY = "device_helper_last_seq";
+const DEVICE_HELPER_STATUS_KEY = "device_helper_status";
+const DEVICE_HELPER_ALARM_NAME = "memact_device_helper_poll";
+const DEVICE_HELPER_POLL_MS = 15000;
+const DEVICE_HELPER_ALARM_MINUTES = 1;
 
 let embedWorker = null;
 let embedWorkerReady = false;
 let embedPending = new Map();
 let snapshotTimer = null;
 let memoryPulseTimer = null;
+let deviceHelperPollTimer = null;
+let deviceHelperPollInFlight = false;
 let authorizedBridgeOrigins = new Set();
 let snapshotInFlight = false;
 let snapshotQueuedWhileRunning = false;
@@ -140,6 +148,7 @@ async function buildMemoryStatus() {
     pendingMediaJobCount,
     lastGraphPacketAt,
     bootstrapState,
+    storedDeviceHelperStatus,
   ] = await Promise.all([
     getEventCount(),
     getSessionCount(),
@@ -149,7 +158,13 @@ async function buildMemoryStatus() {
     getPendingMediaJobCount(),
     getLatestGraphPacketTimestamp(),
     getBootstrapImportState(),
+    chrome.storage.local.get(DEVICE_HELPER_STATUS_KEY).catch(() => ({})),
   ]);
+  const deviceHelperStatus = storedDeviceHelperStatus?.[DEVICE_HELPER_STATUS_KEY] || {
+    connected: false,
+    latest_seq: 0,
+    last_seen_at: "",
+  };
 
   const memorySignature = [
     eventCount,
@@ -162,6 +177,8 @@ async function buildMemoryStatus() {
     normalizeText(bootstrapState?.status, 32),
     normalizeText(bootstrapState?.imported_at, 80),
     Number(bootstrapState?.imported_count || 0),
+    Number(deviceHelperStatus.latest_seq || 0),
+    deviceHelperStatus.connected ? "device_connected" : "device_disconnected",
   ].join("|");
 
   return {
@@ -181,7 +198,9 @@ async function buildMemoryStatus() {
       mode: "memory_pulse_bridge",
       automaticCapture: true,
       automaticDownloads: false,
+      deviceHelper: deviceHelperStatus.connected ? "connected" : "not_connected",
     },
+    device_helper: deviceHelperStatus,
     bootstrap: bootstrapState,
   };
 }
@@ -242,6 +261,139 @@ function scheduleMemoryPulse(reason = "capture") {
 
 function ensureAutoExportAlarm() {
   scheduleMemoryPulse("compat_auto_export_removed");
+}
+
+function scheduleDeviceHelperPoll(delayMs = DEVICE_HELPER_POLL_MS) {
+  clearTimeout(deviceHelperPollTimer);
+  deviceHelperPollTimer = setTimeout(() => {
+    pollDeviceHelper().catch(() => {});
+  }, Math.max(1000, Number(delayMs || DEVICE_HELPER_POLL_MS)));
+}
+
+function ensureDeviceHelperAlarm() {
+  if (chrome.alarms?.create) {
+    chrome.alarms.create(DEVICE_HELPER_ALARM_NAME, {
+      delayInMinutes: 1,
+      periodInMinutes: DEVICE_HELPER_ALARM_MINUTES,
+    });
+  }
+  scheduleDeviceHelperPoll(2500);
+}
+
+async function getDeviceHelperCursor() {
+  try {
+    const stored = await chrome.storage.local.get(DEVICE_HELPER_LAST_SEQ_KEY);
+    return Number(stored?.[DEVICE_HELPER_LAST_SEQ_KEY] || 0) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function rememberDeviceHelperState(status) {
+  await chrome.storage.local.set({
+    [DEVICE_HELPER_LAST_SEQ_KEY]: Number(status.latest_seq || 0) || 0,
+    [DEVICE_HELPER_STATUS_KEY]: {
+      connected: Boolean(status.connected),
+      latest_seq: Number(status.latest_seq || 0) || 0,
+      last_seen_at: status.last_seen_at || new Date().toISOString(),
+      last_error: normalizeText(status.last_error, 180),
+      platform: normalizeText(status.platform, 40),
+      ocr_enabled: Boolean(status.ocr_enabled),
+      raw_media_retained: Boolean(status.raw_media_retained),
+      imported_count: Number(status.imported_count || 0),
+    },
+  });
+}
+
+async function ingestDeviceHelperRecords(records = []) {
+  let importedCount = 0;
+
+  for (const record of records) {
+    const event = record?.event && typeof record.event === "object" ? record.event : null;
+    const graphPacket =
+      record?.graph_packet && typeof record.graph_packet === "object" ? record.graph_packet : null;
+    let eventId = null;
+
+    if (event) {
+      const result = await appendEvent(event).catch(() => null);
+      if (result && !result.skipped && result.id) {
+        eventId = result.id;
+        importedCount += 1;
+      }
+    }
+
+    if (graphPacket) {
+      await appendGraphPacket({
+        ...graphPacket,
+        event_id: eventId || graphPacket.event_id || null,
+      }).catch(() => null);
+    }
+  }
+
+  if (importedCount > 0 || records.length > 0) {
+    invalidateEventSearchIndex();
+    scheduleMemoryPulse("device_helper_ingest");
+  }
+
+  return importedCount;
+}
+
+async function pollDeviceHelper() {
+  if (deviceHelperPollInFlight) {
+    return;
+  }
+  deviceHelperPollInFlight = true;
+  let nextDelay = DEVICE_HELPER_POLL_MS;
+
+  try {
+    const afterSeq = await getDeviceHelperCursor();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const response = await fetch(
+      `${DEVICE_HELPER_BASE_URL}/capture/snapshot?after_seq=${encodeURIComponent(afterSeq)}&limit=80`,
+      {
+        cache: "no-store",
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`device helper returned ${response.status}`);
+    }
+
+    const snapshot = await response.json();
+    const records = Array.isArray(snapshot?.records) ? snapshot.records : [];
+    const importedCount = await ingestDeviceHelperRecords(records);
+    const latestSeq = Math.max(
+      afterSeq,
+      Number(snapshot?.latest_seq || 0) || 0,
+      ...records.map((record) => Number(record?.seq || 0) || 0)
+    );
+
+    await rememberDeviceHelperState({
+      connected: true,
+      latest_seq: latestSeq,
+      last_seen_at: new Date().toISOString(),
+      last_error: "",
+      platform: snapshot?.platform,
+      ocr_enabled: snapshot?.ocr_enabled,
+      raw_media_retained: snapshot?.raw_media_retained,
+      imported_count: importedCount,
+    });
+  } catch (error) {
+    nextDelay = DEVICE_HELPER_POLL_MS * 2;
+    const previousSeq = await getDeviceHelperCursor();
+    await rememberDeviceHelperState({
+      connected: false,
+      latest_seq: previousSeq,
+      last_seen_at: new Date().toISOString(),
+      last_error: String(error?.message || error || "device helper unavailable"),
+    }).catch(() => {});
+  } finally {
+    deviceHelperPollInFlight = false;
+    scheduleDeviceHelperPoll(nextDelay);
+  }
 }
 
 async function authorizeOrigin(origin) {
@@ -2171,14 +2323,24 @@ async function handleSearch(query, limit = 20) {
 chrome.runtime.onInstalled.addListener(() => {
   refreshAuthorizedBridgeOrigins().catch(() => {});
   initDB().catch(() => {});
+  ensureDeviceHelperAlarm();
   queueSnapshot();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   refreshAuthorizedBridgeOrigins().catch(() => {});
   initDB().catch(() => {});
+  ensureDeviceHelperAlarm();
   queueSnapshot();
 });
+
+if (chrome.alarms?.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm?.name === DEVICE_HELPER_ALARM_NAME) {
+      pollDeviceHelper().catch(() => {});
+    }
+  });
+}
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes?.[CAPTURE_AUTHORIZED_ORIGINS_KEY]) {
@@ -2430,7 +2592,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "captureGetContentUnits") {
-    getCaptureContentUnits({ limit: message.limit })
+    getCaptureContentUnits({ limit: message.limit, scopes: message.scopes })
       .then((contentUnits) =>
         sendResponse({
           ok: true,
@@ -2448,7 +2610,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "captureGetGraphPackets") {
-    getCaptureGraphPackets({ limit: message.limit })
+    getCaptureGraphPackets({ limit: message.limit, scopes: message.scopes })
       .then((graphPackets) =>
         sendResponse({
           ok: true,
@@ -2466,7 +2628,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "captureGetMediaJobs") {
-    getCaptureMediaJobs({ limit: message.limit })
+    getCaptureMediaJobs({ limit: message.limit, scopes: message.scopes })
       .then((mediaJobs) =>
         sendResponse({
           ok: true,
@@ -2484,7 +2646,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "captureGetSnapshot") {
-    getCaptureSnapshot({ limit: message.limit })
+    getCaptureSnapshot({ limit: message.limit, scopes: message.scopes, trusted: message.trusted === true })
       .then((snapshot) =>
         sendResponse({
           ok: true,
@@ -2530,3 +2692,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return false;
 });
+
+refreshAuthorizedBridgeOrigins().catch(() => {});
+initDB().catch(() => {});
+ensureDeviceHelperAlarm();
