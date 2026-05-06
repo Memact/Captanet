@@ -2,7 +2,10 @@
 
 Downstream Memact engines must consume Capture only through the public data contract.
 
-Capture is the source-of-truth evidence boundary for Memact's citation and answer engine. It should expose enough structured website-consumption data for downstream systems to cite what the user actually consumed, without forcing those systems to read Capture internals.
+Capture is the source-of-truth evidence boundary for Memact's memory
+infrastructure. It should expose enough structured activity data for downstream
+systems to build schema memory, pattern reports, dictionaries, timelines, and
+query apps without forcing those systems to read Capture internals.
 
 Capture is not an app data broker. Apps can use Memact to capture allowed
 activity and form schemas, but Access must decide what an app is allowed to
@@ -118,7 +121,10 @@ evidence snippets require `memory:read_evidence`.
 }
 ```
 
-Graph packets are deterministic local evidence envelopes. They do not claim final origin or influence by themselves. Schema, Memory, Origin, and Influence decide what survives and how it should be used later.
+Graph packets are deterministic local evidence envelopes. They do not claim
+final origin, influence, pattern, or meaning by themselves. Inference, Schema,
+Memory, and app-specific engines decide what survives and how it should be used
+later.
 
 Raw audio/video blobs are not part of this contract. When transcript text is missing, Capture exposes a pending local media job so a future local helper can transcribe without forcing Capture clients to handle media files.
 
@@ -205,7 +211,9 @@ The helper does not retain raw screenshots or audio. Optional OCR uses temporary
 }
 ```
 
-The nested `events` array is especially useful for downstream evidence-first systems such as Inference, Origin, and Influence because it preserves the page/domain/title trail behind a higher-level activity.
+The nested `events` array is especially useful for downstream evidence-first
+systems such as Inference, Schema, Memory, and app-specific query engines
+because it preserves the page/domain/title trail behind a higher-level activity.
 
 ## Evidence Fields
 
@@ -321,7 +329,7 @@ It can also be enabled on any other authorized origin after the user explicitly 
 
 ## Dependency Rule
 
-- Capture must not import Inference, Schema, Interface, Influence, or Origin.
+- Capture must not import Inference, Schema, Website, or app-specific engines.
 - Downstream engines may consume only the snapshot/activity contract above.
 - No downstream engine may read `db.js`, `context-pipeline.js`, or other Capture internals directly.
 

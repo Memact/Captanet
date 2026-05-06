@@ -10,7 +10,9 @@ It owns one job:
 observe useful digital activity and store it as local evidence
 ```
 
-Capture does not explain thoughts, form schemas, or generate answers. It records what the user encountered so other Memact layers can work from evidence.
+Capture does not form schemas, judge meaning, or generate answers. It records
+what the user encountered so other Memact layers and approved apps can work
+from evidence.
 
 ## What This Repo Owns
 
